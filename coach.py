@@ -24,8 +24,8 @@ FOLLOW = ["--live", "--arm", "left", "--hand", "watch", "--lost-go", "greet",
           "--speed", "60", "--accel", "200", "--seconds", str(SECONDS)]
 
 PLAN = [
-    ("still", "Hold the left hand still at the centre of the picture for 10 s, then still at the left edge for 10 s, then at the right edge for 10 s.", "Jitter at rest; the dead zone."),
-    ("slow", "Sweep the left hand from the left edge to the right edge and back, slowly, about 5 s per sweep, for the whole 30 s.", "Tracking at the hand's usual speed."),
+    ("still", "Hold the left hand still so the green dot sits in the centre box for 10 s, then at the picture's left edge for 10 s, then at its right edge for 10 s.", "Jitter at rest; the dead zone."),
+    ("slow", "Sweep the left hand so the dot goes from the picture's left edge to its right edge and back, slowly, about 5 s per sweep, for the whole 30 s.", "Tracking at the hand's usual speed."),
     ("fast", "Same sweep, fast: about 1 s per sweep. Keep it up for 30 s.", "The burst speeds the simulator saw."),
     ("cross", "Both hands up. Cross the left hand over the right and back, three times, slowly.", "Hand swaps."),
     ("exit", "Drift the left hand out of the picture to the left, keep it out 3 s, bring it back. Then the same to the right. Repeat.", "Coasting, search, the elbow guess."),
@@ -206,7 +206,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;p
   <div style="padding:10px 16px;border-top:1px solid var(--line)" class="why">White ring: the hand this frame. Green dot: the smoothed hand the controller trusts. Orange cross: where it aims (ahead of the hand). Grey box: the dead zone; inside it the arm holds still. The line is the error being corrected.</div>
 </div>
 <div class="card">
-  <div class="k">For 30 seconds</div>
+  <div class="k">For 30 seconds (left and right mean the picture above: your left hand shows on its right)</div>
   <div class="do" id="do"></div>
   <div class="why" id="why"></div>
 </div>
