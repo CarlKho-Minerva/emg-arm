@@ -9,7 +9,7 @@ look at it.
     .venv/bin/python follow.py --live     # moves, small steps, capped; you hold the E-stop
     .venv/bin/python follow.py --live --flip-x --flip-y   # if it turns the wrong way
     .venv/bin/python follow.py --live --kp 8 --kd 0.5      # tune: lower kp if it wobbles, add kd to damp
-    .venv/bin/python follow.py --live --jx 3 --hand left --smooth 0.3   # neck joint, one hand, smoother
+    .venv/bin/python follow.py --live --arm left     # track the LEFT ARM by the body; keeps going when the hand leaves the frame
 
 Each step is GAIN degrees per full-frame of error, never more than STEP_CAP degrees, and it
 waits until the hand has been seen in two frames in a row before moving at all.
@@ -31,6 +31,7 @@ from viam.components.camera import Camera
 from viam.proto.component.arm import JointPositions
 
 from camgrab import grab
+from tracker import arm_target, pose_detector
 from viamarm import arm_of, connect
 
 MODEL = os.path.expanduser("~/.cache/hand_landmarker.task")
@@ -43,6 +44,7 @@ DEADBAND = 0.10    # fraction of frame: close enough, stop fiddling
 SMOOTH = 0.5       # 0..1: share of the new reading that gets through each frame (lower = smoother, laggier)
 ASMOOTH = 0.5      # same filter on the step the arm is told to take (the "low-pass on the action")
 COAST = 0.5        # s: after losing the hand, keep moving along its last direction this long
+REC_EVERY = 0.0    # s between saved pictures; 0 = every frame (about 2 MB/s, stitch with stitch.sh)
 REC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "follow")
 # Measured 2026-10-29 at the greet pose, +5 deg on each joint (picture shift in px, 1280x720):
 #   j0 waist      x+92  y-11   pan, clean
@@ -120,9 +122,10 @@ def hand_centre(det, jpeg, near=None, want=None):
     return min((c[0] for c in cands), key=lambda c: (c[0] - near[0]) ** 2 + (c[1] - near[1]) ** 2)
 
 
-async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, want=None, smooth=SMOOTH, asmooth=ASMOOTH):
+async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, want=None, smooth=SMOOTH, asmooth=ASMOOTH, arm_side=None):
     adx = ady = 0.0   # the low-passed step
     det = detector()
+    pose = pose_detector() if arm_side else None
     prev = None   # (ex, ey, time) of the last frame that saw a hand
     sm = None     # smoothed hand centre
     # every run is recorded: one CSV row per frame, a picture every 0.5 s, for learning from later
@@ -151,9 +154,15 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
         while True:
             t0 = time.time()
             jpeg, _ = await grab(cam, want_depth=False)
-            raw = hand_centre(det, jpeg, near=sm, want=want)
+            how = "hand"
+            if pose:
+                t = arm_target(pose, jpeg, arm_side)     # by the body: never confuses left with right
+                raw = None if t is None else (t[0], t[1])
+                how = t[2] if t else "none"
+            else:
+                raw = hand_centre(det, jpeg, near=sm, want=want)
             pic = ""
-            if time.time() - last_pic > 0.5:
+            if time.time() - last_pic > REC_EVERY:
                 pic = f"{time.time():.3f}.jpg"
                 open(os.path.join(rec_dir, pic), "wb").write(jpeg)
                 last_pic = time.time()
@@ -211,7 +220,7 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
             # remember which way the hand went, so a search starts in that direction
             if dx: search_dir = 1.0 if dx > 0 else -1.0
             line = (f"{time.strftime('%H:%M:%S')} hand at ({c[0]:.2f},{c[1]:.2f}) "
-                    f"err ({ex:+.2f},{ey:+.2f}); step j{jx} {dx:+.1f} j{jy} {dy:+.1f}")
+                    f"err ({ex:+.2f},{ey:+.2f}) by {how}; step j{jx} {dx:+.1f} j{jy} {dy:+.1f}")
             moved = 0
             j = []
             if live and seen >= 2 and (dx or dy):
@@ -240,5 +249,6 @@ if __name__ == "__main__":
     ap.add_argument("--hand", choices=["left", "right", "watch"], help="left/right by label, or watch = the wrist with a dark face")
     ap.add_argument("--smooth", type=float, default=SMOOTH)
     ap.add_argument("--asmooth", type=float, default=ASMOOTH, help="low-pass on the step (lower = smoother)")
+    ap.add_argument("--arm", choices=["left", "right"], help="track this arm by the body (shoulder/elbow/wrist); beats --hand")
     a = ap.parse_args()
-    asyncio.run(main(a.live, a.flip_x, a.flip_y, a.kp, a.kd, a.jx, a.jy, a.hand, a.smooth, a.asmooth))
+    asyncio.run(main(a.live, a.flip_x, a.flip_y, a.kp, a.kd, a.jx, a.jy, a.hand, a.smooth, a.asmooth, a.arm))
