@@ -37,11 +37,23 @@ MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
              "hand_landmarker/float16/1/hand_landmarker.task")
 GAIN = 12.0        # Kp: degrees of turn per full frame-width of error
 KD = 0.0           # Kd: degrees per (frame-width per second) of error change; damps overshoot
-STEP_CAP = 4.0     # never more than this per step, degrees
+STEP_CAP = 6.0     # never more than this per step, degrees (streamed, so a step is "head this way", not a stop)
 DEADBAND = 0.10    # fraction of frame: close enough, stop fiddling
 SMOOTH = 0.5       # 0..1: share of the new reading that gets through each frame (lower = smoother, laggier)
 REC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "follow")
-JOINT_X, JOINT_Y = 0, 4   # waist for left/right, wrist nod for up/down; try --jx 3 (forearm twist) from home
+# Measured 2026-10-29 at the greet pose, +5 deg on each joint (picture shift in px, 1280x720):
+#   j0 waist      x+92  y-11   pan, clean
+#   j1 shoulder   x+12  y+157  tilt
+#   j2 elbow      x+2   y-144  tilt, clean
+#   j3 forearm    roll only (-4 deg)
+#   j4 wrist nod  x-29  y-69   mixed
+#   j5 wrist spin x-42  y+59   mixed, with roll
+# So: pan with the waist, tilt with the elbow. Signs: waist + moves the picture right (camera looks
+# left), elbow + moves the picture up (camera looks down). -1 for jy = never tilt.
+JOINT_X, JOINT_Y = 0, 2
+SEARCH_AFTER = 1.0        # s without a hand before the camera starts sweeping to look for it
+SEARCH_STEP = 2.0         # degrees per frame while sweeping
+SEARCH_LIMIT = 45.0       # degrees either side of where the sweep started
 
 
 def detector():
@@ -98,6 +110,16 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
     log.writerow(["t", "raw_x", "raw_y", "sm_x", "sm_y", "err_x", "err_y", "step_x", "step_y", "moved", "joints", "frame"])
     last_pic = 0.0
     print("recording to", rec_dir)
+    lost_since = None
+    search_dir = 1.0
+    search_origin = None
+    pending = None   # the move in flight; a new one cancels it, so the arm never stops to wait
+
+    async def stream(joints):
+        nonlocal pending
+        if pending and not pending.done():
+            pending.cancel()
+        pending = asyncio.create_task(arm.move_to_joint_positions(JointPositions(values=joints)))
     async with await connect() as machine:
         cam = Camera.from_robot(machine, "cam")
         arm = arm_of(machine)
@@ -115,9 +137,23 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
                 seen = 0
                 prev = None
                 sm = None
+                lost_since = lost_since or time.time()
+                note = ""
+                if live and time.time() - lost_since > SEARCH_AFTER:
+                    # sweep: turn the pan joint toward where the hand was last, bounce at the limits
+                    j = list((await arm.get_joint_positions()).values)
+                    if search_origin is None:
+                        search_origin = j[jx]
+                    if abs(j[jx] + search_dir * SEARCH_STEP - search_origin) > SEARCH_LIMIT:
+                        search_dir = -search_dir
+                    j[jx] += search_dir * SEARCH_STEP
+                    await stream(j)
+                    note = f"  searching j{jx} {search_dir * SEARCH_STEP:+.0f}"
                 log.writerow([f"{time.time():.3f}", "", "", "", "", "", "", "", "", 0, "", pic])
-                print(f"{time.strftime('%H:%M:%S')} no hand")
+                print(f"{time.strftime('%H:%M:%S')} no hand{note}")
                 continue
+            lost_since = None
+            search_origin = None
             seen += 1
             # the smoother: blend the new reading into the old one, so one twitchy frame cannot move the arm
             sm = raw if sm is None else (sm[0] + smooth * (raw[0] - sm[0]), sm[1] + smooth * (raw[1] - sm[1]))
@@ -134,7 +170,9 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
             dx = max(-STEP_CAP, min(STEP_CAP, -ux * (-1 if flip_x else 1)))
             dy = max(-STEP_CAP, min(STEP_CAP, uy * (-1 if flip_y else 1)))
             if abs(ex) < DEADBAND: dx = 0.0
-            if abs(ey) < DEADBAND: dy = 0.0
+            if abs(ey) < DEADBAND or jy < 0: dy = 0.0
+            # remember which way the hand went, so a search starts in that direction
+            if dx: search_dir = 1.0 if dx > 0 else -1.0
             line = (f"{time.strftime('%H:%M:%S')} hand at ({c[0]:.2f},{c[1]:.2f}) "
                     f"err ({ex:+.2f},{ey:+.2f}); step j{jx} {dx:+.1f} j{jy} {dy:+.1f}")
             moved = 0
@@ -142,8 +180,9 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
             if live and seen >= 2 and (dx or dy):
                 j = list((await arm.get_joint_positions()).values)
                 j[jx] += dx
-                j[jy] += dy
-                await arm.move_to_joint_positions(JointPositions(values=j))
+                if jy >= 0:
+                    j[jy] += dy
+                await stream(j)
                 line += "  MOVED"
                 moved = 1
             log.writerow([f"{t0:.3f}", f"{raw[0]:.4f}", f"{raw[1]:.4f}", f"{c[0]:.4f}", f"{c[1]:.4f}",
