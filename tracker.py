@@ -15,9 +15,9 @@ import mediapipe as mp
 import numpy as np
 from mediapipe.tasks.python import BaseOptions, vision
 
-MODEL = os.path.expanduser("~/.cache/pose_landmarker_lite.task")
+MODEL = os.path.expanduser("~/.cache/pose_landmarker_heavy.task")
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
-             "pose_landmarker_lite/float16/1/pose_landmarker_lite.task")
+             "pose_landmarker_lite/float16/1/pose_landmarker_heavy.task")
 # landmark numbers in the pose model
 SHOULDER = {"left": 11, "right": 12}
 ELBOW = {"left": 13, "right": 14}
@@ -29,7 +29,10 @@ def pose_detector():
     if not os.path.exists(MODEL):
         os.makedirs(os.path.dirname(MODEL), exist_ok=True)
         urllib.request.urlretrieve(MODEL_URL, MODEL)
-    opts = vision.PoseLandmarkerOptions(base_options=BaseOptions(model_asset_path=MODEL), num_poses=1)
+    # heavy at a low threshold: the only one that found a half-body at the frame edge (2026-10-29, 32 ms);
+    # lite and full saw nothing there at any threshold
+    opts = vision.PoseLandmarkerOptions(base_options=BaseOptions(model_asset_path=MODEL), num_poses=1,
+                                        min_pose_detection_confidence=0.2, min_pose_presence_confidence=0.2)
     return vision.PoseLandmarker.create_from_options(opts)
 
 

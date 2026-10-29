@@ -155,11 +155,12 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
             t0 = time.time()
             jpeg, _ = await grab(cam, want_depth=False)
             how = "hand"
+            raw = None
             if pose:
                 t = arm_target(pose, jpeg, arm_side)     # by the body: never confuses left with right
-                raw = None if t is None else (t[0], t[1])
-                how = t[2] if t else "none"
-            else:
+                if t:
+                    raw, how = (t[0], t[1]), t[2]
+            if raw is None:                              # no body found (half out of frame): fall back to the hand
                 raw = hand_centre(det, jpeg, near=sm, want=want)
             pic = ""
             if time.time() - last_pic > REC_EVERY:
