@@ -34,7 +34,7 @@ PLAN = [
 PER_TAG = 5
 ORDER = [tag for tag, _, _ in PLAN for _ in range(PER_TAG)]   # still x5, slow x5, ...
 
-state = {"running": False, "started": 0.0, "last": None, "proc": None, "log": ""}
+state = {"running": False, "started": 0.0, "last": None, "proc": None, "log": "", "phase": ""}
 LIVE_JPG = os.path.join(HERE, "data", "live.jpg")
 LIVE_JSON = os.path.join(HERE, "data", "live.json")
 
@@ -148,9 +148,9 @@ def go_greet():
 
 
 def run_episode(tag):
-    state.update(running=True, started=time.time(), log="going to greet first")
+    state.update(running=True, started=0.0, log="", phase="going to greet")
     go_greet()
-    state["started"] = time.time()
+    state["phase"] = "warming up"
     before = set(glob.glob(os.path.join(HERE, "data", "follow", "*")))
     proc = subprocess.Popen([PY, os.path.join(HERE, "follow.py"), *FOLLOW, "--tag", tag],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=HERE)
@@ -159,6 +159,9 @@ def run_episode(tag):
     for line in proc.stdout:
         if "INFO" in line or line.startswith(("W0000", "I0000")) or "viam_rust" in line:
             continue
+        if line.startswith("READY:"):
+            state["started"] = time.time()
+            state["phase"] = "running"
         tail.append(line.rstrip()); tail = tail[-6:]
         state["log"] = "\n".join(tail)
     proc.wait()
@@ -169,7 +172,7 @@ def run_episode(tag):
     if run_dir and os.path.exists(os.path.join(run_dir, "frames.csv")):
         result.update(score_run(run_dir))
     rows = sheet(); rows.append(result); save(rows)
-    state.update(running=False, last=result, proc=None)
+    state.update(running=False, last=result, proc=None, phase="")
 
 
 PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Episode coach</title>
@@ -195,7 +198,8 @@ table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;p
 </style></head><body><main>
 <div class="k">Episode <span id="n">1</span> of 30 <span id="held"></span></div>
 <h1 id="tag">still</h1>
-<div class="card" style="padding:0;overflow:hidden">
+<div class="card" style="padding:0;overflow:hidden;position:relative">
+  <div id="big" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:120px;font-weight:700;color:#fff;background:rgba(0,0,0,.45);letter-spacing:-.04em"></div>
   <img id="live" src="/live.jpg" style="display:block;width:100%%;aspect-ratio:16/9;background:#000;object-fit:contain">
   <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0;border-top:1px solid var(--line)">
     <div class="sig"><div class="k">state</div><div id="s_state">-</div></div>
@@ -239,10 +243,17 @@ async function tick(){
   document.getElementById('do').textContent=p[1]; document.getElementById('why').textContent=p[2];
   document.getElementById('start').disabled=s.running||i>=30;
   document.getElementById('log').textContent=s.log||'';
-  if(s.running){const t=Math.max(0,SECS-(Date.now()/1000-s.started));
-    document.getElementById('count').textContent=t.toFixed(0)+' s left';
-    document.getElementById('bar').style.width=(100*(1-t/SECS))+'%%';}
+  if(s.running){
+    if(s.phase!=='running'||!s.started){document.getElementById('count').textContent=s.phase+'...';document.getElementById('bar').style.width='0';}
+    else{const t=Math.max(0,SECS-(Date.now()/1000-s.started));
+      document.getElementById('count').textContent=t.toFixed(0)+' s left';
+      document.getElementById('bar').style.width=(100*(1-t/SECS))+'%%';}}
   else{document.getElementById('count').textContent='';document.getElementById('bar').style.width='0';}
+  const big=document.getElementById('big');
+  if(s.running&&s.phase!=='running'){big.style.display='flex';big.style.fontSize='48px';big.textContent=s.phase+'...';}
+  else if(s.running&&s.started&&(Date.now()/1000-s.started)<3){big.style.display='flex';big.style.fontSize='120px';big.textContent=String(Math.ceil(3-(Date.now()/1000-s.started)));}
+  else if(s.running&&s.started&&(Date.now()/1000-s.started)<4){big.style.display='flex';big.style.fontSize='96px';big.textContent='GO';}
+  else big.style.display='none';
   if(s.last){document.getElementById('lastcard').style.display='';
     document.getElementById('reward').textContent=s.last.reward==null?'no score':s.last.reward.toFixed(3);
     document.getElementById('detail').textContent=`${s.last.tag}: hand seen in ${s.last.seen} of ${s.last.frames} frames, rms ${s.last.rms??'?'}, lost ${s.last.lost??'?'}${s.last.held_out?' (held out)':''}`;}
@@ -291,7 +302,7 @@ class H(BaseHTTPRequestHandler):
                 self._send("{}")
             return
         if self.path == "/state":
-            self._send(json.dumps({"running": state["running"], "started": state["started"], "last": state["last"],
+            self._send(json.dumps({"running": state["running"], "started": state["started"], "last": state["last"], "phase": state["phase"],
                                    "log": state["log"], "count": next_index(), "sheet": sheet()}))
         else:
             page = PAGE.replace("%PLAN%", json.dumps(PLAN)).replace("%ORDER%", json.dumps(ORDER)).replace("%SECS%", str(SECONDS)).replace("%%", "%")

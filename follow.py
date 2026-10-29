@@ -179,10 +179,13 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
         for sig in (signal.SIGINT, signal.SIGTERM):
             asyncio.get_running_loop().add_signal_handler(sig, stopping.set)
         try:
-            t_start = time.time()
-            while not stopping.is_set() and (seconds <= 0 or time.time() - t_start < seconds):
+            t_start = None   # the clock starts at the first frame, not at model loading
+            while not stopping.is_set() and (seconds <= 0 or t_start is None or time.time() - t_start < seconds):
                 t0 = time.time()
                 jpeg, _ = await grab(cam, want_depth=False)
+                if t_start is None:
+                    t_start = time.time()
+                    print("READY: first frame; the clock starts now", flush=True)
                 how = "hand"
                 # the hand detector leads (it does not hallucinate); the body model only (a) picks which hand
                 # is the chosen arm at first lock and (b) points past the elbow when no hand is in view
