@@ -24,8 +24,8 @@ from follow import detector
 from handpos import hand_in_world
 from viamarm import arm_of, connect
 
-STANDOFF = 250.0    # mm to stop short of the hand
-REACH = 600.0       # mm, furthest the gripper is allowed from the base (arm reach is ~700)
+STANDOFF = 200.0    # mm to stop short of the hand
+REACH = 800.0       # mm, furthest the gripper may be from the base (measured full stretch: 851)
 MIN_Z = 120.0       # mm above the table, never lower
 MOVE_IF = 40.0      # mm: ignore changes smaller than this (the hand jitters)
 

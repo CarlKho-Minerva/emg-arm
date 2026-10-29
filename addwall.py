@@ -1,4 +1,4 @@
-"""Add an invisible wall between the arm and Carl's side of the table (x = 800 mm and beyond).
+"""Add an invisible wall between the arm and Carl's side of the table (x = 950 mm and beyond).
 
 Same model as the walls the organisers put in (erh:vmodutils:obstacle). The planner refuses
 to cross it; direct joint moves ignore it, so follow.py's joint nudges are not covered.
@@ -14,7 +14,7 @@ MACHINE = "72648a81-5cbf-4d14-9446-a7ec4a8d51a8"
 WALL = {
     "name": "wall-carl", "api": "rdk:component:gripper", "model": "erh:vmodutils:obstacle",
     "attributes": {"geometries": [{"type": "box", "x": 50.0, "y": 1500.0, "z": 1024.0, "label": "wall-carl"}]},
-    "frame": {"parent": "world", "translation": {"x": 800.0, "y": 0.0, "z": 488.0},
+    "frame": {"parent": "world", "translation": {"x": 950.0, "y": 0.0, "z": 488.0},
               "orientation": {"type": "ov_degrees", "value": {"x": 0.0, "y": 0.0, "z": 1.0, "th": 0.0}}},
 }
 
