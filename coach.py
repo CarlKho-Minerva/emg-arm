@@ -35,6 +35,48 @@ PER_TAG = 5
 ORDER = [tag for tag, _, _ in PLAN for _ in range(PER_TAG)]   # still x5, slow x5, ...
 
 state = {"running": False, "started": 0.0, "last": None, "proc": None, "log": ""}
+LIVE_JPG = os.path.join(HERE, "data", "live.jpg")
+LIVE_JSON = os.path.join(HERE, "data", "live.json")
+
+
+def preview_loop():
+    """While no episode runs, keep the live picture fresh at about 5 frames/s with the hand marked,
+    so Carl can see what the camera sees before pressing Start. Stops publishing during an episode
+    (follow.py publishes then) and survives the robot being offline."""
+    import asyncio
+    sys.path.insert(0, HERE)
+    from viam.components.camera import Camera
+    from camgrab import grab
+    from follow import DEADBAND, detector, hand_centre
+    from overlay import draw, publish
+    from viamarm import connect
+
+    async def run():
+        det = detector()
+        while True:
+            if state["running"]:
+                await asyncio.sleep(0.5); continue
+            try:
+                async with await connect() as machine:
+                    cam = Camera.from_robot(machine, "cam")
+                    while not state["running"]:
+                        jpeg, _ = await grab(cam, want_depth=False)
+                        c = hand_centre(det, jpeg)
+                        publish(draw(jpeg, raw=c, sm=c, deadband=DEADBAND, status="PREVIEW  " + ("hand seen" if c else "no hand")),
+                                state="preview", how="hand" if c else "", err=([round(c[0] - 0.5, 3), round(c[1] - 0.5, 3)] if c else None))
+                        await asyncio.sleep(0.15)
+            except Exception as e:
+                publish(draw(b"", status="") if False else _blank(f"robot offline: {str(e)[:60]}"), state="offline")
+                await asyncio.sleep(3)
+
+    asyncio.run(run())
+
+
+def _blank(text):
+    import cv2, numpy as np
+    img = np.zeros((360, 640, 3), np.uint8)
+    cv2.putText(img, text, (16, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (160, 160, 160), 1, cv2.LINE_AA)
+    return cv2.imencode(".jpg", img)[1].tobytes()
 
 
 def sheet():
@@ -120,9 +162,21 @@ button[disabled]{opacity:.4;cursor:default}
 pre{font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--mut);white-space:pre-wrap;margin:8px 0 0}
 table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}th{color:var(--mut);font-weight:500}
 .ok{color:var(--ok)}
+.sig{padding:10px 16px;border-right:1px solid var(--line);font-variant-numeric:tabular-nums}.sig:last-child{border-right:0}.sig div:last-child{font-size:18px;font-weight:500}
 </style></head><body><main>
 <div class="k">Episode <span id="n">1</span> of 30 <span id="held"></span></div>
 <h1 id="tag">still</h1>
+<div class="card" style="padding:0;overflow:hidden">
+  <img id="live" src="/live.jpg" style="display:block;width:100%%;aspect-ratio:16/9;background:#000;object-fit:contain">
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0;border-top:1px solid var(--line)">
+    <div class="sig"><div class="k">state</div><div id="s_state">-</div></div>
+    <div class="sig"><div class="k">error x / y</div><div id="s_err">-</div></div>
+    <div class="sig"><div class="k">step (deg)</div><div id="s_step">-</div></div>
+    <div class="sig"><div class="k">waist</div><div id="s_joint">-</div></div>
+    <div class="sig"><div class="k">frames/s</div><div id="s_fps">-</div></div>
+  </div>
+  <div style="padding:10px 16px;border-top:1px solid var(--line)" class="why">White ring: the hand this frame. Green dot: the smoothed hand the controller trusts. Orange cross: where it aims (ahead of the hand). Grey box: the dead zone; inside it the arm holds still. The line is the error being corrected.</div>
+</div>
 <div class="card">
   <div class="k">For 30 seconds</div>
   <div class="do" id="do"></div>
@@ -170,6 +224,18 @@ async function tick(){
 }
 async function start(){document.getElementById('start').disabled=true;await fetch('/start',{method:'POST'});}
 setInterval(tick,500);tick();
+async function live(){
+  const img=document.getElementById('live'); img.src='/live.jpg?'+Date.now();
+  try{const j=await (await fetch('/live.json')).json();
+    const stale=j.t&&(Date.now()/1000-j.t)>2;
+    document.getElementById('s_state').textContent=stale?'stale':(j.state||'-');
+    document.getElementById('s_err').textContent=j.err?`${j.err[0].toFixed(2)} / ${j.err[1].toFixed(2)}`:'-';
+    document.getElementById('s_step').textContent=j.step?`${j.step[0]>=0?'+':''}${j.step[0].toFixed(1)} / ${j.step[1]>=0?'+':''}${j.step[1].toFixed(1)}`:'-';
+    document.getElementById('s_joint').textContent=j.joint!=null?j.joint.toFixed(1)+' deg':'-';
+    document.getElementById('s_fps').textContent=j.fps!=null?j.fps:'-';
+  }catch(e){}
+}
+setInterval(live,120);
 </script></body></html>"""
 
 
@@ -183,6 +249,18 @@ class H(BaseHTTPRequestHandler):
         self.end_headers(); self.wfile.write(b)
 
     def do_GET(self):
+        if self.path.startswith("/live.jpg"):
+            try:
+                self._send(open(LIVE_JPG, "rb").read(), "image/jpeg")
+            except FileNotFoundError:
+                self._send(_blank("no picture yet"), "image/jpeg")
+            return
+        if self.path.startswith("/live.json"):
+            try:
+                self._send(open(LIVE_JSON).read())
+            except FileNotFoundError:
+                self._send("{}")
+            return
         if self.path == "/state":
             self._send(json.dumps({"running": state["running"], "started": state["started"], "last": state["last"],
                                    "log": state["log"], "count": next_index(), "sheet": sheet()}))
@@ -202,4 +280,5 @@ class H(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(os.environ.get("COACH_PORT", "8787"))
     print(f"episode coach on http://localhost:{port}  (next: episode {next_index() + 1} of {len(ORDER)})")
+    threading.Thread(target=preview_loop, daemon=True).start()
     HTTPServer(("127.0.0.1", port), H).serve_forever()

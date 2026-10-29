@@ -33,6 +33,7 @@ from viam.components.switch import Switch
 from viam.proto.component.arm import JointPositions
 
 from camgrab import grab
+from overlay import draw, publish
 from tracker import arm_target, pose_detector
 from viamarm import arm_of, connect
 
@@ -262,6 +263,10 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
                     await stream(j)
                     line += "  MOVED"
                     moved = 1
+                publish(draw(jpeg, raw=raw, sm=sm, aim=(c if c != sm else None), deadband=DEADBAND,
+                             status=f"{how.upper()}  err ({ex:+.2f},{ey:+.2f})  step j{jx} {dx:+.1f} j{jy} {dy:+.1f}" + ("  MOVED" if moved else "")),
+                        state="tracking", how=how, err=[round(ex, 3), round(ey, 3)], step=[round(dx, 2), round(dy, 2)],
+                        moved=moved, joint=(round(j[jx], 1) if j else None))
                 log.writerow([f"{t0:.3f}", f"{raw[0]:.4f}", f"{raw[1]:.4f}", f"{c[0]:.4f}", f"{c[1]:.4f}",
                               f"{ex:.4f}", f"{ey:.4f}", f"{dx:.2f}", f"{dy:.2f}", moved,
                               " ".join(f"{v:.2f}" for v in j), pic])
