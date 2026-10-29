@@ -112,13 +112,15 @@ def watch_score(bgr, pts):
     return float((patch < 60).mean())
 
 
-def hand_centre(det, jpeg, near=None, want=None, avoid=None):
+def hand_centre(det, jpeg, near=None, want=None, avoid=None, keep=None):
     """Palm centre (0..1, 0..1) of the hand to follow, or None.
 
     near: last known centre; of several hands, the closest to it wins (sticky tracking).
     want: "left" or "right" to keep only hands the detector labels so. The label can come
     out swapped on a camera that is not mirrored; test before trusting it.
     avoid: a point (the other wrist, from the body model); any hand within 0.12 of it is dropped.
+    keep: the chosen wrist from the body model; with both known, a hand whose own wrist is nearer
+    to `avoid` than to `keep` is dropped whatever the distance (a big close hand defeats a fixed radius).
     """
     bgr = cv2.imdecode(np.frombuffer(jpeg, "uint8"), cv2.IMREAD_COLOR)
     img = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
@@ -131,6 +133,12 @@ def hand_centre(det, jpeg, near=None, want=None, avoid=None):
         c = (sum(p.x for p in palm) / 5, sum(p.y for p in palm) / 5)
         if avoid and (c[0] - avoid[0]) ** 2 + (c[1] - avoid[1]) ** 2 < 0.12 ** 2:
             continue                                      # that is the other hand
+        if avoid and keep:
+            w = (pts[0].x, pts[0].y)                      # this hand's own wrist
+            d_avoid = (w[0] - avoid[0]) ** 2 + (w[1] - avoid[1]) ** 2
+            d_keep = (w[0] - keep[0]) ** 2 + (w[1] - keep[1]) ** 2
+            if d_avoid < d_keep:
+                continue                                  # nearer the wrist we must not follow
         size = math.hypot(pts[9].x - pts[0].x, pts[9].y - pts[0].y)   # wrist to middle knuckle, in frame widths
         if size < MIN_HAND:
             continue                                      # a far-away person's hand
@@ -148,7 +156,7 @@ def hand_centre(det, jpeg, near=None, want=None, avoid=None):
 async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, want=None, smooth=SMOOTH, asmooth=ASMOOTH, arm_side=None, lost_go=None, speed=ARM_SPEED, accel=ARM_ACCEL,
                look=LOOKAHEAD, tag="", seconds=0.0):
     hist = []         # the last few smoothed hand positions with their times: the state
-    body_cache = (None, None)   # (body, other wrist) from the last body-model run
+    body_cache = (None, None, None)   # (body, other wrist, my wrist) from the last body-model run
     frame_n = 0
     adx = ady = 0.0   # the low-passed step
     det = detector()
@@ -161,7 +169,8 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
     os.makedirs(rec_dir, exist_ok=True)
     log_f = open(os.path.join(rec_dir, "frames.csv"), "w", newline="", buffering=1)   # line-buffered: survives a kill
     log = csv.writer(log_f)
-    log.writerow(["t", "raw_x", "raw_y", "sm_x", "sm_y", "err_x", "err_y", "step_x", "step_y", "moved", "joints", "frame"])
+    log.writerow(["t", "raw_x", "raw_y", "sm_x", "sm_y", "err_x", "err_y", "step_x", "step_y", "moved", "joints", "frame",
+                  "ms_grab", "ms_detect", "ms_loop"])
     last_pic = 0.0
     print("recording to", rec_dir)
     lost_since = None
@@ -191,6 +200,7 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
             while not stopping.is_set() and (seconds <= 0 or t_start is None or time.time() - t_start < seconds):
                 t0 = time.time()
                 jpeg, _ = await grab(cam, want_depth=False)
+                t_grab = time.time()
                 if t_start is None:
                     t_start = time.time()
                     print("READY: first frame; the clock starts now", flush=True)
@@ -214,7 +224,7 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
                     if jy >= 0: j[jy] += ady * 0.7
                     await stream(j)
                     adx *= 0.85; ady *= 0.85
-                    log.writerow([f"{time.time():.3f}", "", "", "", "", "", "", f"{adx:.2f}", f"{ady:.2f}", 1, "", pic])
+                    log.writerow([f"{time.time():.3f}", "", "", "", "", "", "", f"{adx:.2f}", f"{ady:.2f}", 1, "", pic, *tel()])
                     print(f"{time.strftime('%H:%M:%S')} no hand  coasting j{jx} {adx:+.1f}")
                     continue
                 if raw is None:
@@ -241,7 +251,7 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
                         j[jx] += search_dir * SEARCH_STEP
                         await stream(j)
                         note = f"  searching j{jx} {search_dir * SEARCH_STEP:+.0f}"
-                    log.writerow([f"{time.time():.3f}", "", "", "", "", "", "", "", "", 0, "", pic])
+                    log.writerow([f"{time.time():.3f}", "", "", "", "", "", "", "", "", 0, "", pic, *tel()])
                     print(f"{time.strftime('%H:%M:%S')} no hand{note}")
                     continue
                 lost_since = None
@@ -287,7 +297,7 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
                         moved=moved, joint=(round(j[jx], 1) if j else None))
                 log.writerow([f"{t0:.3f}", f"{raw[0]:.4f}", f"{raw[1]:.4f}", f"{c[0]:.4f}", f"{c[1]:.4f}",
                               f"{ex:.4f}", f"{ey:.4f}", f"{dx:.2f}", f"{dy:.2f}", moved,
-                              " ".join(f"{v:.2f}" for v in j), pic])
+                              " ".join(f"{v:.2f}" for v in j), pic, *tel()])
                 print(line, f"({time.time() - t0:.2f}s)")
 
         finally:
