@@ -28,6 +28,7 @@ import mediapipe as mp
 import numpy as np
 from mediapipe.tasks.python import BaseOptions, vision
 from viam.components.camera import Camera
+from viam.components.switch import Switch
 from viam.proto.component.arm import JointPositions
 
 from camgrab import grab
@@ -58,7 +59,8 @@ REC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "foll
 JOINT_X, JOINT_Y = 0, 2
 SEARCH_AFTER = 2.0        # s without a hand before the camera starts sweeping to look for it
 SEARCH_STEP = 0.5         # degrees per frame while sweeping (streamed at ~10 frames/s = 5 deg/s, slow on purpose)
-SEARCH_LIMIT = 20.0       # degrees either side of where the sweep started
+SEARCH_LIMIT = 20.0
+LOST_GO_AFTER = 10.0      # s of fruitless search before returning to the --lost-go pose       # degrees either side of where the sweep started
 
 
 def detector():
@@ -122,7 +124,7 @@ def hand_centre(det, jpeg, near=None, want=None):
     return min((c[0] for c in cands), key=lambda c: (c[0] - near[0]) ** 2 + (c[1] - near[1]) ** 2)
 
 
-async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, want=None, smooth=SMOOTH, asmooth=ASMOOTH, arm_side=None):
+async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, want=None, smooth=SMOOTH, asmooth=ASMOOTH, arm_side=None, lost_go=None):
     adx = ady = 0.0   # the low-passed step
     det = detector()
     pose = pose_detector() if arm_side else None
@@ -150,6 +152,8 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
     async with await connect() as machine:
         cam = Camera.from_robot(machine, "cam")
         arm = arm_of(machine)
+        home_switch = Switch.from_robot(machine, lost_go) if lost_go else None
+        went_home = False
         seen = 0
         while True:
             t0 = time.time()
@@ -183,6 +187,14 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
                 sm = None
                 lost_since = lost_since or time.time()
                 note = ""
+                if live and home_switch and not went_home and time.time() - lost_since > SEARCH_AFTER + LOST_GO_AFTER:
+                    if pending and not pending.done():
+                        pending.cancel()
+                    await home_switch.set_position(2)     # the block's "go to"
+                    went_home = True
+                    search_origin = None
+                    print(f"{time.strftime('%H:%M:%S')} nobody for {LOST_GO_AFTER:.0f}s: back to {lost_go}")
+                    continue
                 if live and time.time() - lost_since > SEARCH_AFTER:
                     # sweep: turn the pan joint toward where the hand was last, bounce at the limits
                     j = list((await arm.get_joint_positions()).values)
@@ -198,6 +210,7 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
                 continue
             lost_since = None
             search_origin = None
+            went_home = False
             seen += 1
             # the smoother: blend the new reading into the old one, so one twitchy frame cannot move the arm
             sm = raw if sm is None else (sm[0] + smooth * (raw[0] - sm[0]), sm[1] + smooth * (raw[1] - sm[1]))
@@ -251,5 +264,6 @@ if __name__ == "__main__":
     ap.add_argument("--smooth", type=float, default=SMOOTH)
     ap.add_argument("--asmooth", type=float, default=ASMOOTH, help="low-pass on the step (lower = smoother)")
     ap.add_argument("--arm", choices=["left", "right"], help="track this arm by the body (shoulder/elbow/wrist); beats --hand")
+    ap.add_argument("--lost-go", metavar="BLOCK", help="after 10 s of fruitless search, press this pose block's go-to (e.g. greet)")
     a = ap.parse_args()
-    asyncio.run(main(a.live, a.flip_x, a.flip_y, a.kp, a.kd, a.jx, a.jy, a.hand, a.smooth, a.asmooth, a.arm))
+    asyncio.run(main(a.live, a.flip_x, a.flip_y, a.kp, a.kd, a.jx, a.jy, a.hand, a.smooth, a.asmooth, a.arm, a.lost_go))
