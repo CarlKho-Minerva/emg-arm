@@ -17,6 +17,7 @@ waits until the hand has been seen in two frames in a row before moving at all.
 import argparse
 import asyncio
 import csv
+import math
 import os
 import struct
 import time
@@ -40,6 +41,7 @@ KD = 0.0           # Kd: degrees per (frame-width per second) of error change; d
 STEP_CAP = 6.0     # never more than this per step, degrees (streamed, so a step is "head this way", not a stop)
 DEADBAND = 0.10    # fraction of frame: close enough, stop fiddling
 SMOOTH = 0.5       # 0..1: share of the new reading that gets through each frame (lower = smoother, laggier)
+ASMOOTH = 0.5      # same filter on the step the arm is told to take (the "low-pass on the action")
 REC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "follow")
 # Measured 2026-10-29 at the greet pose, +5 deg on each joint (picture shift in px, 1280x720):
 #   j0 waist      x+92  y-11   pan, clean
@@ -74,6 +76,23 @@ def depth_at(depth_bytes, u, v):
     return struct.unpack(">H", depth_bytes[off:off + 2])[0]
 
 
+def watch_score(bgr, pts):
+    """How watch-like the wrist looks: share of dark pixels in a patch just past the wrist landmark.
+    An Apple Watch face is a black rectangle on the back of the wrist; bare skin is not dark."""
+    h, w = bgr.shape[:2]
+    wx, wy = pts[0].x * w, pts[0].y * h
+    mx, my = pts[9].x * w, pts[9].y * h          # middle knuckle: the wrist-to-knuckle line gives hand size
+    size = max(20.0, math.hypot(mx - wx, my - wy))
+    # step back from the wrist, away from the fingers, by a third of a hand
+    cx, cy = wx - (mx - wx) * 0.35, wy - (my - wy) * 0.35
+    r = int(size * 0.3)
+    x0, x1 = max(0, int(cx - r)), min(w, int(cx + r)); y0, y1 = max(0, int(cy - r)), min(h, int(cy + r))
+    if x1 <= x0 or y1 <= y0:
+        return 0.0
+    patch = cv2.cvtColor(bgr[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY)
+    return float((patch < 60).mean())
+
+
 def hand_centre(det, jpeg, near=None, want=None):
     """Palm centre (0..1, 0..1) of the hand to follow, or None.
 
@@ -86,18 +105,23 @@ def hand_centre(det, jpeg, near=None, want=None):
     res = det.detect(img)
     cands = []
     for pts, hd in zip(res.hand_landmarks, res.handedness):
-        if want and hd[0].category_name.lower() != want:
+        if want and want != "watch" and hd[0].category_name.lower() != want:
             continue
         palm = [pts[i] for i in (0, 5, 9, 13, 17)]       # wrist + knuckles
-        cands.append((sum(p.x for p in palm) / 5, sum(p.y for p in palm) / 5))
+        cands.append(((sum(p.x for p in palm) / 5, sum(p.y for p in palm) / 5), watch_score(bgr, pts)))
     if not cands:
         return None
+    if want == "watch" and len(cands) > 1:
+        cands.sort(key=lambda c: -c[1])                  # the darkest wrist first
+        if cands[0][1] > 0.15:
+            return cands[0][0]
     if near is None:
-        return cands[0]
-    return min(cands, key=lambda c: (c[0] - near[0]) ** 2 + (c[1] - near[1]) ** 2)
+        return cands[0][0]
+    return min((c[0] for c in cands), key=lambda c: (c[0] - near[0]) ** 2 + (c[1] - near[1]) ** 2)
 
 
-async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, want=None, smooth=SMOOTH):
+async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, want=None, smooth=SMOOTH, asmooth=ASMOOTH):
+    adx = ady = 0.0   # the low-passed step
     det = detector()
     prev = None   # (ex, ey, time) of the last frame that saw a hand
     sm = None     # smoothed hand centre
@@ -171,6 +195,9 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
             dy = max(-STEP_CAP, min(STEP_CAP, uy * (-1 if flip_y else 1)))
             if abs(ex) < DEADBAND: dx = 0.0
             if abs(ey) < DEADBAND or jy < 0: dy = 0.0
+            # low-pass on the action: the commanded step eases toward the computed one
+            adx += asmooth * (dx - adx); ady += asmooth * (dy - ady)
+            dx, dy = (adx if abs(adx) > 0.2 else 0.0), (ady if abs(ady) > 0.2 else 0.0)
             # remember which way the hand went, so a search starts in that direction
             if dx: search_dir = 1.0 if dx > 0 else -1.0
             line = (f"{time.strftime('%H:%M:%S')} hand at ({c[0]:.2f},{c[1]:.2f}) "
@@ -200,7 +227,8 @@ if __name__ == "__main__":
     ap.add_argument("--kd", type=float, default=KD)
     ap.add_argument("--jx", type=int, default=JOINT_X, help="joint for left/right (0 waist, 3 forearm twist)")
     ap.add_argument("--jy", type=int, default=JOINT_Y, help="joint for up/down (4 wrist nod)")
-    ap.add_argument("--hand", choices=["left", "right"], help="follow only this hand (detector's label)")
+    ap.add_argument("--hand", choices=["left", "right", "watch"], help="left/right by label, or watch = the wrist with a dark face")
     ap.add_argument("--smooth", type=float, default=SMOOTH)
+    ap.add_argument("--asmooth", type=float, default=ASMOOTH, help="low-pass on the step (lower = smoother)")
     a = ap.parse_args()
-    asyncio.run(main(a.live, a.flip_x, a.flip_y, a.kp, a.kd, a.jx, a.jy, a.hand, a.smooth))
+    asyncio.run(main(a.live, a.flip_x, a.flip_y, a.kp, a.kd, a.jx, a.jy, a.hand, a.smooth, a.asmooth))
