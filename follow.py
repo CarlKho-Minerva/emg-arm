@@ -62,7 +62,7 @@ REC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "foll
 # pixels per degree because the camera is nearer.
 # So: pan with the waist, tilt with the elbow. Signs: waist + moves the picture right (camera looks
 # left), elbow + moves the picture up (camera looks down). -1 for jy = never tilt.
-MIN_HAND = 0.06           # wrist-to-knuckle length as a fraction of the frame; Carl's at arm's length is ~0.12,
+MIN_HAND = 0.045          # wrist-to-knuckle length as a fraction of the frame; Carl's at arm's length is ~0.12,
                           # a person 3 m behind him is ~0.03 (added 29 Oct after episode 5 followed a man behind him)
 JOINT_X, JOINT_Y = 0, 2
 SEARCH_AFTER = 1.0        # s without a hand before the camera starts sweeping to look for it
