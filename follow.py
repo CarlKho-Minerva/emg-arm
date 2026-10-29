@@ -9,12 +9,14 @@ look at it.
     .venv/bin/python follow.py --live     # moves, small steps, capped; you hold the E-stop
     .venv/bin/python follow.py --live --flip-x --flip-y   # if it turns the wrong way
     .venv/bin/python follow.py --live --kp 8 --kd 0.5      # tune: lower kp if it wobbles, add kd to damp
+    .venv/bin/python follow.py --live --jx 3 --hand left --smooth 0.3   # neck joint, one hand, smoother
 
 Each step is GAIN degrees per full-frame of error, never more than STEP_CAP degrees, and it
 waits until the hand has been seen in two frames in a row before moving at all.
 """
 import argparse
 import asyncio
+import csv
 import os
 import struct
 import time
@@ -36,15 +38,17 @@ MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
 GAIN = 12.0        # Kp: degrees of turn per full frame-width of error
 KD = 0.0           # Kd: degrees per (frame-width per second) of error change; damps overshoot
 STEP_CAP = 4.0     # never more than this per step, degrees
-DEADBAND = 0.06    # fraction of frame: close enough, stop fiddling
-JOINT_X, JOINT_Y = 0, 4
+DEADBAND = 0.10    # fraction of frame: close enough, stop fiddling
+SMOOTH = 0.5       # 0..1: share of the new reading that gets through each frame (lower = smoother, laggier)
+REC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "follow")
+JOINT_X, JOINT_Y = 0, 4   # waist for left/right, wrist nod for up/down; try --jx 3 (forearm twist) from home
 
 
 def detector():
     if not os.path.exists(MODEL):
         os.makedirs(os.path.dirname(MODEL), exist_ok=True)
         urllib.request.urlretrieve(MODEL_URL, MODEL)
-    opts = vision.HandLandmarkerOptions(base_options=BaseOptions(model_asset_path=MODEL), num_hands=1)
+    opts = vision.HandLandmarkerOptions(base_options=BaseOptions(model_asset_path=MODEL), num_hands=2)
     return vision.HandLandmarker.create_from_options(opts)
 
 
@@ -58,20 +62,42 @@ def depth_at(depth_bytes, u, v):
     return struct.unpack(">H", depth_bytes[off:off + 2])[0]
 
 
-def hand_centre(det, jpeg):
+def hand_centre(det, jpeg, near=None, want=None):
+    """Palm centre (0..1, 0..1) of the hand to follow, or None.
+
+    near: last known centre; of several hands, the closest to it wins (sticky tracking).
+    want: "left" or "right" to keep only hands the detector labels so. The label can come
+    out swapped on a camera that is not mirrored; test before trusting it.
+    """
     bgr = cv2.imdecode(np.frombuffer(jpeg, "uint8"), cv2.IMREAD_COLOR)
     img = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
     res = det.detect(img)
-    if not res.hand_landmarks:
+    cands = []
+    for pts, hd in zip(res.hand_landmarks, res.handedness):
+        if want and hd[0].category_name.lower() != want:
+            continue
+        palm = [pts[i] for i in (0, 5, 9, 13, 17)]       # wrist + knuckles
+        cands.append((sum(p.x for p in palm) / 5, sum(p.y for p in palm) / 5))
+    if not cands:
         return None
-    pts = res.hand_landmarks[0]
-    palm = [pts[i] for i in (0, 5, 9, 13, 17)]       # wrist + knuckles
-    return sum(p.x for p in palm) / 5, sum(p.y for p in palm) / 5
+    if near is None:
+        return cands[0]
+    return min(cands, key=lambda c: (c[0] - near[0]) ** 2 + (c[1] - near[1]) ** 2)
 
 
-async def main(live, flip_x, flip_y, kp=GAIN, kd=KD):
+async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, want=None, smooth=SMOOTH):
     det = detector()
     prev = None   # (ex, ey, time) of the last frame that saw a hand
+    sm = None     # smoothed hand centre
+    # every run is recorded: one CSV row per frame, a picture every 0.5 s, for learning from later
+    run = time.strftime("%Y%m%d-%H%M%S") + ("-live" if live else "-dry")
+    rec_dir = os.path.join(REC_DIR, run)
+    os.makedirs(rec_dir, exist_ok=True)
+    log_f = open(os.path.join(rec_dir, "frames.csv"), "w", newline="", buffering=1)   # line-buffered: survives a kill
+    log = csv.writer(log_f)
+    log.writerow(["t", "raw_x", "raw_y", "sm_x", "sm_y", "err_x", "err_y", "step_x", "step_y", "moved", "joints", "frame"])
+    last_pic = 0.0
+    print("recording to", rec_dir)
     async with await connect() as machine:
         cam = Camera.from_robot(machine, "cam")
         arm = arm_of(machine)
@@ -79,13 +105,23 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD):
         while True:
             t0 = time.time()
             jpeg, _ = await grab(cam, want_depth=False)
-            c = hand_centre(det, jpeg)
-            if c is None:
+            raw = hand_centre(det, jpeg, near=sm, want=want)
+            pic = ""
+            if time.time() - last_pic > 0.5:
+                pic = f"{time.time():.3f}.jpg"
+                open(os.path.join(rec_dir, pic), "wb").write(jpeg)
+                last_pic = time.time()
+            if raw is None:
                 seen = 0
                 prev = None
+                sm = None
+                log.writerow([f"{time.time():.3f}", "", "", "", "", "", "", "", "", 0, "", pic])
                 print(f"{time.strftime('%H:%M:%S')} no hand")
                 continue
             seen += 1
+            # the smoother: blend the new reading into the old one, so one twitchy frame cannot move the arm
+            sm = raw if sm is None else (sm[0] + smooth * (raw[0] - sm[0]), sm[1] + smooth * (raw[1] - sm[1]))
+            c = sm
             ex, ey = c[0] - 0.5, c[1] - 0.5          # + means hand is right / below centre
             now = time.time()
             vx = vy = 0.0
@@ -100,13 +136,19 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD):
             if abs(ex) < DEADBAND: dx = 0.0
             if abs(ey) < DEADBAND: dy = 0.0
             line = (f"{time.strftime('%H:%M:%S')} hand at ({c[0]:.2f},{c[1]:.2f}) "
-                    f"err ({ex:+.2f},{ey:+.2f}); step j{JOINT_X} {dx:+.1f} j{JOINT_Y} {dy:+.1f}")
+                    f"err ({ex:+.2f},{ey:+.2f}); step j{jx} {dx:+.1f} j{jy} {dy:+.1f}")
+            moved = 0
+            j = []
             if live and seen >= 2 and (dx or dy):
                 j = list((await arm.get_joint_positions()).values)
-                j[JOINT_X] += dx
-                j[JOINT_Y] += dy
+                j[jx] += dx
+                j[jy] += dy
                 await arm.move_to_joint_positions(JointPositions(values=j))
                 line += "  MOVED"
+                moved = 1
+            log.writerow([f"{t0:.3f}", f"{raw[0]:.4f}", f"{raw[1]:.4f}", f"{c[0]:.4f}", f"{c[1]:.4f}",
+                          f"{ex:.4f}", f"{ey:.4f}", f"{dx:.2f}", f"{dy:.2f}", moved,
+                          " ".join(f"{v:.2f}" for v in j), pic])
             print(line, f"({time.time() - t0:.2f}s)")
 
 
@@ -117,5 +159,9 @@ if __name__ == "__main__":
     ap.add_argument("--flip-y", action="store_true")
     ap.add_argument("--kp", type=float, default=GAIN)
     ap.add_argument("--kd", type=float, default=KD)
+    ap.add_argument("--jx", type=int, default=JOINT_X, help="joint for left/right (0 waist, 3 forearm twist)")
+    ap.add_argument("--jy", type=int, default=JOINT_Y, help="joint for up/down (4 wrist nod)")
+    ap.add_argument("--hand", choices=["left", "right"], help="follow only this hand (detector's label)")
+    ap.add_argument("--smooth", type=float, default=SMOOTH)
     a = ap.parse_args()
-    asyncio.run(main(a.live, a.flip_x, a.flip_y, a.kp, a.kd))
+    asyncio.run(main(a.live, a.flip_x, a.flip_y, a.kp, a.kd, a.jx, a.jy, a.hand, a.smooth))
