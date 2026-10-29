@@ -123,3 +123,30 @@ Written 29 Oct ~15:45 PT by the sEMG thread. Board only; the arm, Viam config, f
   (first 12 cues of the schedule: 3 rest, 2 jaw_clench, 2 lip_purse, 5 others; about a minute). The "activation, dB above rest"
   table must show jaw_clench as the largest row on ch1, well above lip_purse, and the QC line "jaw clench" must be ok (3 dB is the
   floor of the check; 10 dB or more is what a demo threshold needs). If it is under 3 dB the pads are off the muscle or SRB1/Bias is open.
+
+## sEMG status (29 Oct evening)
+
+Written by the sEMG child thread on this Mac (forge-m5-48). Times are PT.
+
+- **15:37 Port found.** The V1 board is `/dev/cu.usbserial-110` (CH340, vid 1A86). `ssc ports` lists it as V1.
+- **15:44 LINK OK.** First `ssc link` (10 s) failed: the board had just been reset by the connect
+  routine and 208 packets looked dropped. Second run (20 s): 5035 packets, 249.71 SPS, 0 dropped,
+  0 checksum failures, 24 pre-handshake packets discarded, latency p95 5.8 ms. Saved under
+  `silent-speech-cerelog/data/bench/20261029T224405Z_link`. Lesson: if the first link check fails
+  right after plugging in, run it once more before touching anything.
+- **All 8 channels railed with nothing on the pins.** Expected on V1 (floating inputs). No noise
+  floor can be measured until the inputs are tied to something. Plan: six female-female jumpers
+  across + and - of channels 3 to 8 (ties each unused + to SRB1 internally, since MISC1 SRB1=1
+  routes every - input to SRB1), then all four lead snaps on one coin for a 30 s
+  `ssc bench noise --condition short`. The jumper trick is the "untested idea" above; tonight's
+  floor test is its test. Not yet run: waiting on Carl's leads.
+- **Live clench detector written and tested on the fake board.** `python -m ssc live --port
+  /dev/cu.usbserial-110 --channels 1 2` (new file `ssc/live.py`, subcommand in `ssc/__main__.py`).
+  Causal 20 to 65 Hz band-pass + 60 Hz notch, 100 ms RMS envelope, 5 s rest calibration,
+  threshold = 4 x rest (12 dB) and never under 5 uV, 120 ms hold, release at 0.6 x threshold.
+  Refuses to arm on a railed channel. Battery rule inherited from `record` (`--off-body` skips it
+  only when no pad is on a person). `--fake --seconds 14` gave 3 simulated clenches, 3 CLENCH and
+  3 RELEASE lines, none at rest. For the arm thread: `from ssc import live; for ev in
+  live.events(args): ...` yields dicts with `state` in ARMED / CLENCH / RELEASE.
+- Not yet done: noise floor on the real board, the 12-trial on-skin block, the activation table,
+  the live loop on the real board. Each gets its own dated line below when it happens.

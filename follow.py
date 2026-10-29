@@ -62,6 +62,8 @@ REC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "foll
 # pixels per degree because the camera is nearer.
 # So: pan with the waist, tilt with the elbow. Signs: waist + moves the picture right (camera looks
 # left), elbow + moves the picture up (camera looks down). -1 for jy = never tilt.
+MIN_HAND = 0.06           # wrist-to-knuckle length as a fraction of the frame; Carl's at arm's length is ~0.12,
+                          # a person 3 m behind him is ~0.03 (added 29 Oct after episode 5 followed a man behind him)
 JOINT_X, JOINT_Y = 0, 2
 SEARCH_AFTER = 1.0        # s without a hand before the camera starts sweeping to look for it
 SEARCH_STEP = 0.5         # degrees per frame while sweeping (streamed at ~10 frames/s = 5 deg/s, slow on purpose)
@@ -128,6 +130,9 @@ def hand_centre(det, jpeg, near=None, want=None, avoid=None):
         c = (sum(p.x for p in palm) / 5, sum(p.y for p in palm) / 5)
         if avoid and (c[0] - avoid[0]) ** 2 + (c[1] - avoid[1]) ** 2 < 0.12 ** 2:
             continue                                      # that is the other hand
+        size = math.hypot(pts[9].x - pts[0].x, pts[9].y - pts[0].y)   # wrist to middle knuckle, in frame widths
+        if size < MIN_HAND:
+            continue                                      # a far-away person's hand
         cands.append((c, watch_score(bgr, pts)))
     if not cands:
         return None

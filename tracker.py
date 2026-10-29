@@ -31,9 +31,19 @@ def pose_detector():
         urllib.request.urlretrieve(MODEL_URL, MODEL)
     # heavy at a low threshold: the only one that found a half-body at the frame edge (2026-10-29, 32 ms);
     # lite and full saw nothing there at any threshold
-    opts = vision.PoseLandmarkerOptions(base_options=BaseOptions(model_asset_path=MODEL), num_poses=1,
+    # up to three bodies: the room is full, and the nearest (biggest) one is Carl
+    opts = vision.PoseLandmarkerOptions(base_options=BaseOptions(model_asset_path=MODEL), num_poses=3,
                                         min_pose_detection_confidence=0.2, min_pose_presence_confidence=0.2)
     return vision.PoseLandmarker.create_from_options(opts)
+
+
+def nearest_body(res):
+    """Of the bodies found, the one with the widest shoulders in the picture: the nearest person."""
+    if not res.pose_landmarks:
+        return None
+    def width(p):
+        return abs(p[SHOULDER["left"]].x - p[SHOULDER["right"]].x)
+    return max(res.pose_landmarks, key=width)
 
 
 def arm_target(det, jpeg, side="left"):
@@ -45,9 +55,9 @@ def arm_target(det, jpeg, side="left"):
     bgr = cv2.imdecode(np.frombuffer(jpeg, "uint8"), cv2.IMREAD_COLOR)
     img = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
     res = det.detect(img)
-    if not res.pose_landmarks:
+    p = nearest_body(res)
+    if p is None:
         return None
-    p = res.pose_landmarks[0]
     s, e, w = p[SHOULDER[side]], p[ELBOW[side]], p[WRIST[side]]
     if w.visibility > VISIBLE:
         return w.x, w.y, "wrist"
@@ -69,8 +79,8 @@ def wrists(det, jpeg):
     img = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
     res = det.detect(img)
     out = {"left": None, "right": None}
-    if res.pose_landmarks:
-        p = res.pose_landmarks[0]
+    p = nearest_body(res)
+    if p is not None:
         for side in out:
             w = p[WRIST[side]]
             if w.visibility > VISIBLE:
