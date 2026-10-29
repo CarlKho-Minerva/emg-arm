@@ -64,7 +64,7 @@ def preview_loop():
                         c = hand_centre(det, jpeg)
                         publish(draw(jpeg, raw=c, sm=c, deadband=DEADBAND, status="PREVIEW  " + ("hand seen" if c else "no hand")),
                                 state="preview", how="hand" if c else "", err=([round(c[0] - 0.5, 3), round(c[1] - 0.5, 3)] if c else None))
-                        await asyncio.sleep(0.15)
+                        await asyncio.sleep(0.01)
             except Exception as e:
                 publish(draw(b"", status="") if False else _blank(f"robot offline: {str(e)[:60]}"), state="offline")
                 await asyncio.sleep(3)
@@ -120,8 +120,27 @@ def score_run(run_dir):
             "lost": round(1 - seen / len(rows), 2), "frames": len(rows), "seen": seen}
 
 
+def go_greet():
+    """Send the arm to the greet pose and wait for it, so every episode starts from the same place."""
+    import asyncio
+    sys.path.insert(0, HERE)
+    from viam.components.switch import Switch
+    from viamarm import connect
+
+    async def run():
+        async with await connect() as machine:
+            await Switch.from_robot(machine, "greet").set_position(2)
+            await asyncio.sleep(4)
+    try:
+        asyncio.run(run())
+    except Exception as e:
+        state["log"] = f"could not go to greet: {str(e)[:80]}"
+
+
 def run_episode(tag):
-    state.update(running=True, started=time.time(), log="")
+    state.update(running=True, started=time.time(), log="going to greet first")
+    go_greet()
+    state["started"] = time.time()
     before = set(glob.glob(os.path.join(HERE, "data", "follow", "*")))
     proc = subprocess.Popen([PY, os.path.join(HERE, "follow.py"), *FOLLOW, "--tag", tag],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=HERE)
@@ -184,7 +203,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;p
 </div>
 <div class="card">
   <div class="k">Before you press Start</div>
-  <div>Arm at greet, you in the chair, laptop pulled back, one hand on the red button for the whole 30 s.</div>
+  <div>You in the chair, laptop pulled back, one hand on the red button. Start sends the arm to greet first (about 4 s), then the 30 s begins.</div>
   <p><button id="start" onclick="start()">Start episode</button> <span id="count" class="k"></span></p>
   <div class="bar"><i id="bar"></i></div>
   <pre id="log"></pre>
@@ -235,7 +254,7 @@ async function live(){
     document.getElementById('s_fps').textContent=j.fps!=null?j.fps:'-';
   }catch(e){}
 }
-setInterval(live,120);
+setInterval(live,80);
 </script></body></html>"""
 
 
