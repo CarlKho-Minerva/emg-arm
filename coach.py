@@ -21,7 +21,7 @@ PY = os.path.join(HERE, ".venv", "bin", "python")
 SHEET = os.path.join(HERE, "data", "episodes.json")
 SECONDS = 30
 FOLLOW = ["--live", "--arm", "left", "--hand", "watch", "--lost-go", "greet",
-          "--speed", "60", "--accel", "200", "--seconds", str(SECONDS)]
+          "--speed", "60", "--accel", "200", "--seconds", str(SECONDS + 3)]   # 3 s of countdown, then 30
 
 PLAN = [
     ("still", "Left hand up at chest height. Hold it still 10 s: the arm settles with the dot in the box. Then move the hand quickly so the dot jumps to the picture's left edge and FREEZE the hand in space: the arm turns until the dot is back in the box (about 10 s). Then the same to the right edge.", "Jitter at rest, and two step responses: how fast it recentres and whether it overshoots."),
@@ -160,7 +160,7 @@ def run_episode(tag):
         if "INFO" in line or line.startswith(("W0000", "I0000")) or "viam_rust" in line:
             continue
         if line.startswith("READY:"):
-            state["started"] = time.time()
+            state["started"] = time.time() + 3      # the bar and the 30 s begin after the 3-2-1
             state["phase"] = "running"
         tail.append(line.rstrip()); tail = tail[-6:]
         state["log"] = "\n".join(tail)
@@ -251,8 +251,8 @@ async function tick(){
   else{document.getElementById('count').textContent='';document.getElementById('bar').style.width='0';}
   const big=document.getElementById('big');
   if(s.running&&s.phase!=='running'){big.style.display='flex';big.style.fontSize='48px';big.textContent=s.phase+'...';}
-  else if(s.running&&s.started&&(Date.now()/1000-s.started)<3){big.style.display='flex';big.style.fontSize='120px';big.textContent=String(Math.ceil(3-(Date.now()/1000-s.started)));}
-  else if(s.running&&s.started&&(Date.now()/1000-s.started)<4){big.style.display='flex';big.style.fontSize='96px';big.textContent='GO';}
+  else if(s.running&&s.started&&(s.started-Date.now()/1000)>0){big.style.display='flex';big.style.fontSize='120px';big.textContent=String(Math.ceil(s.started-Date.now()/1000));}
+  else if(s.running&&s.started&&(Date.now()/1000-s.started)<1){big.style.display='flex';big.style.fontSize='96px';big.textContent='GO';}
   else big.style.display='none';
   if(s.last){document.getElementById('lastcard').style.display='';
     document.getElementById('reward').textContent=s.last.reward==null?'no score':s.last.reward.toFixed(3);
