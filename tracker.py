@@ -17,7 +17,7 @@ from mediapipe.tasks.python import BaseOptions, vision
 
 MODEL = os.path.expanduser("~/.cache/pose_landmarker_heavy.task")
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
-             "pose_landmarker_lite/float16/1/pose_landmarker_heavy.task")
+             "pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task")
 # landmark numbers in the pose model
 SHOULDER = {"left": 11, "right": 12}
 ELBOW = {"left": 13, "right": 14}
