@@ -49,10 +49,13 @@ def preview_loop():
     from camgrab import grab
     from follow import DEADBAND, detector, hand_centre
     from overlay import draw, publish
+    from tracker import arm_target, pose_detector
     from viamarm import connect
 
     async def run():
         det = detector()
+        pose = pose_detector()
+        last = None
         while True:
             if state["running"]:
                 await asyncio.sleep(0.5); continue
@@ -61,9 +64,15 @@ def preview_loop():
                     cam = Camera.from_robot(machine, "cam")
                     while not state["running"]:
                         jpeg, _ = await grab(cam, want_depth=False)
-                        c = hand_centre(det, jpeg)
-                        publish(draw(jpeg, raw=c, sm=c, deadband=DEADBAND, status="PREVIEW  " + ("hand seen" if c else "no hand")),
-                                state="preview", how="hand" if c else "", err=([round(c[0] - 0.5, 3), round(c[1] - 0.5, 3)] if c else None))
+                        # the same choice the follower makes: the LEFT arm by the body when it is seen,
+                        # else the hand nearest the last one, else the wrist with the watch
+                        body = arm_target(pose, jpeg, "left")
+                        near = (body[0], body[1]) if body and body[2] == "wrist" else last
+                        c = hand_centre(det, jpeg, near=near, want=None if near else "watch")
+                        last = c
+                        how = "left arm by body" if body and body[2] == "wrist" else ("hand" if c else "")
+                        publish(draw(jpeg, raw=c, sm=c, deadband=DEADBAND, status="PREVIEW  " + (how if c else "no hand")),
+                                state="preview", how=how, err=([round(c[0] - 0.5, 3), round(c[1] - 0.5, 3)] if c else None))
                         await asyncio.sleep(0.01)
             except Exception as e:
                 publish(draw(b"", status="") if False else _blank(f"robot offline: {str(e)[:60]}"), state="offline")
