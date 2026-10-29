@@ -60,7 +60,12 @@ JOINT_X, JOINT_Y = 0, 2
 SEARCH_AFTER = 2.0        # s without a hand before the camera starts sweeping to look for it
 SEARCH_STEP = 0.5         # degrees per frame while sweeping (streamed at ~10 frames/s = 5 deg/s, slow on purpose)
 SEARCH_LIMIT = 20.0
-LOST_GO_AFTER = 10.0      # s of fruitless search before returning to the --lost-go pose       # degrees either side of where the sweep started
+LOST_GO_AFTER = 10.0
+# Arm speed and acceleration while following. Measured 2026-10-29 streaming 6-degree targets every
+# 100 ms on joint 4: default 60 deg/s + accel 500 stalled on 8 of 15 samples (stutter); 40 + 120 had
+# no stalls, 4 to 10 deg/s continuous. The driver's defaults are put back on exit.
+ARM_SPEED, ARM_ACCEL = 40.0, 120.0
+ARM_SPEED_DEFAULT, ARM_ACCEL_DEFAULT = 60.0, 500.0      # s of fruitless search before returning to the --lost-go pose       # degrees either side of where the sweep started
 
 
 def detector():
@@ -124,7 +129,7 @@ def hand_centre(det, jpeg, near=None, want=None):
     return min((c[0] for c in cands), key=lambda c: (c[0] - near[0]) ** 2 + (c[1] - near[1]) ** 2)
 
 
-async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, want=None, smooth=SMOOTH, asmooth=ASMOOTH, arm_side=None, lost_go=None):
+async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, want=None, smooth=SMOOTH, asmooth=ASMOOTH, arm_side=None, lost_go=None, speed=ARM_SPEED, accel=ARM_ACCEL):
     adx = ady = 0.0   # the low-passed step
     det = detector()
     pose = pose_detector() if arm_side else None
@@ -153,103 +158,113 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
         cam = Camera.from_robot(machine, "cam")
         arm = arm_of(machine)
         home_switch = Switch.from_robot(machine, lost_go) if lost_go else None
+        if live:
+            await arm.do_command({"set_speed": float(speed), "set_acceleration": float(accel)})
+            print(f"arm speed {speed:.0f} deg/s, acceleration {accel:.0f}")
         went_home = False
         seen = 0
-        while True:
-            t0 = time.time()
-            jpeg, _ = await grab(cam, want_depth=False)
-            how = "hand"
-            # the hand detector leads (it does not hallucinate); the body model only (a) picks which hand
-            # is the chosen arm at first lock and (b) points past the elbow when no hand is in view
-            body = arm_target(pose, jpeg, arm_side) if pose else None
-            near = sm if sm is not None else ((body[0], body[1]) if body else None)
-            raw = hand_centre(det, jpeg, near=near, want=None if body else want)
-            if raw is None and body and body[2] == "elbow+":
-                raw, how = (body[0], body[1]), "elbow+"
-            pic = ""
-            if time.time() - last_pic > REC_EVERY:
-                pic = f"{time.time():.3f}.jpg"
-                open(os.path.join(rec_dir, pic), "wb").write(jpeg)
-                last_pic = time.time()
-            if raw is None and prev is not None and time.time() - prev[2] < COAST and live:
-                # coast: the hand was just there and heading somewhere; keep heading that way
-                j = list((await arm.get_joint_positions()).values)
-                j[jx] += adx * 0.7
-                if jy >= 0: j[jy] += ady * 0.7
-                await stream(j)
-                adx *= 0.85; ady *= 0.85
-                log.writerow([f"{time.time():.3f}", "", "", "", "", "", "", f"{adx:.2f}", f"{ady:.2f}", 1, "", pic])
-                print(f"{time.strftime('%H:%M:%S')} no hand  coasting j{jx} {adx:+.1f}")
-                continue
-            if raw is None:
-                seen = 0
-                prev = None
-                sm = None
-                lost_since = lost_since or time.time()
-                note = ""
-                if live and home_switch and not went_home and time.time() - lost_since > SEARCH_AFTER + LOST_GO_AFTER:
-                    if pending and not pending.done():
-                        pending.cancel()
-                    await home_switch.set_position(2)     # the block's "go to"
-                    went_home = True
-                    search_origin = None
-                    print(f"{time.strftime('%H:%M:%S')} nobody for {LOST_GO_AFTER:.0f}s: back to {lost_go}")
-                    continue
-                if live and time.time() - lost_since > SEARCH_AFTER:
-                    # sweep: turn the pan joint toward where the hand was last, bounce at the limits
+        try:
+            while True:
+                t0 = time.time()
+                jpeg, _ = await grab(cam, want_depth=False)
+                how = "hand"
+                # the hand detector leads (it does not hallucinate); the body model only (a) picks which hand
+                # is the chosen arm at first lock and (b) points past the elbow when no hand is in view
+                body = arm_target(pose, jpeg, arm_side) if pose else None
+                near = sm if sm is not None else ((body[0], body[1]) if body else None)
+                raw = hand_centre(det, jpeg, near=near, want=None if body else want)
+                if raw is None and body and body[2] == "elbow+":
+                    raw, how = (body[0], body[1]), "elbow+"
+                pic = ""
+                if time.time() - last_pic > REC_EVERY:
+                    pic = f"{time.time():.3f}.jpg"
+                    open(os.path.join(rec_dir, pic), "wb").write(jpeg)
+                    last_pic = time.time()
+                if raw is None and prev is not None and time.time() - prev[2] < COAST and live:
+                    # coast: the hand was just there and heading somewhere; keep heading that way
                     j = list((await arm.get_joint_positions()).values)
-                    if search_origin is None:
-                        search_origin = j[jx]
-                    if abs(j[jx] + search_dir * SEARCH_STEP - search_origin) > SEARCH_LIMIT:
-                        search_dir = -search_dir
-                    j[jx] += search_dir * SEARCH_STEP
+                    j[jx] += adx * 0.7
+                    if jy >= 0: j[jy] += ady * 0.7
                     await stream(j)
-                    note = f"  searching j{jx} {search_dir * SEARCH_STEP:+.0f}"
-                log.writerow([f"{time.time():.3f}", "", "", "", "", "", "", "", "", 0, "", pic])
-                print(f"{time.strftime('%H:%M:%S')} no hand{note}")
-                continue
-            lost_since = None
-            search_origin = None
-            went_home = False
-            seen += 1
-            # the smoother: blend the new reading into the old one, so one twitchy frame cannot move the arm
-            sm = raw if sm is None else (sm[0] + smooth * (raw[0] - sm[0]), sm[1] + smooth * (raw[1] - sm[1]))
-            c = sm
-            ex, ey = c[0] - 0.5, c[1] - 0.5          # + means hand is right / below centre
-            now = time.time()
-            vx = vy = 0.0
-            if prev:
-                dt = max(now - prev[2], 1e-3)
-                vx, vy = (ex - prev[0]) / dt, (ey - prev[1]) / dt   # how fast the error is changing
-            prev = (ex, ey, now)
-            ux = kp * ex + kd * vx                   # P + D, in degrees
-            uy = kp * ey + kd * vy
-            dx = max(-STEP_CAP, min(STEP_CAP, -ux * (-1 if flip_x else 1)))
-            dy = max(-STEP_CAP, min(STEP_CAP, uy * (-1 if flip_y else 1)))
-            if abs(ex) < DEADBAND: dx = 0.0
-            if abs(ey) < DEADBAND or jy < 0: dy = 0.0
-            # low-pass on the action: the commanded step eases toward the computed one
-            adx += asmooth * (dx - adx); ady += asmooth * (dy - ady)
-            dx, dy = (adx if abs(adx) > 0.2 else 0.0), (ady if abs(ady) > 0.2 else 0.0)
-            # remember which way the hand went, so a search starts in that direction
-            if dx: search_dir = 1.0 if dx > 0 else -1.0
-            line = (f"{time.strftime('%H:%M:%S')} hand at ({c[0]:.2f},{c[1]:.2f}) "
-                    f"err ({ex:+.2f},{ey:+.2f}) by {how}; step j{jx} {dx:+.1f} j{jy} {dy:+.1f}")
-            moved = 0
-            j = []
-            if live and seen >= 2 and (dx or dy):
-                j = list((await arm.get_joint_positions()).values)
-                j[jx] += dx
-                if jy >= 0:
-                    j[jy] += dy
-                await stream(j)
-                line += "  MOVED"
-                moved = 1
-            log.writerow([f"{t0:.3f}", f"{raw[0]:.4f}", f"{raw[1]:.4f}", f"{c[0]:.4f}", f"{c[1]:.4f}",
-                          f"{ex:.4f}", f"{ey:.4f}", f"{dx:.2f}", f"{dy:.2f}", moved,
-                          " ".join(f"{v:.2f}" for v in j), pic])
-            print(line, f"({time.time() - t0:.2f}s)")
+                    adx *= 0.85; ady *= 0.85
+                    log.writerow([f"{time.time():.3f}", "", "", "", "", "", "", f"{adx:.2f}", f"{ady:.2f}", 1, "", pic])
+                    print(f"{time.strftime('%H:%M:%S')} no hand  coasting j{jx} {adx:+.1f}")
+                    continue
+                if raw is None:
+                    seen = 0
+                    prev = None
+                    sm = None
+                    lost_since = lost_since or time.time()
+                    note = ""
+                    if live and home_switch and not went_home and time.time() - lost_since > SEARCH_AFTER + LOST_GO_AFTER:
+                        if pending and not pending.done():
+                            pending.cancel()
+                        await home_switch.set_position(2)     # the block's "go to"
+                        went_home = True
+                        search_origin = None
+                        print(f"{time.strftime('%H:%M:%S')} nobody for {LOST_GO_AFTER:.0f}s: back to {lost_go}")
+                        continue
+                    if live and time.time() - lost_since > SEARCH_AFTER:
+                        # sweep: turn the pan joint toward where the hand was last, bounce at the limits
+                        j = list((await arm.get_joint_positions()).values)
+                        if search_origin is None:
+                            search_origin = j[jx]
+                        if abs(j[jx] + search_dir * SEARCH_STEP - search_origin) > SEARCH_LIMIT:
+                            search_dir = -search_dir
+                        j[jx] += search_dir * SEARCH_STEP
+                        await stream(j)
+                        note = f"  searching j{jx} {search_dir * SEARCH_STEP:+.0f}"
+                    log.writerow([f"{time.time():.3f}", "", "", "", "", "", "", "", "", 0, "", pic])
+                    print(f"{time.strftime('%H:%M:%S')} no hand{note}")
+                    continue
+                lost_since = None
+                search_origin = None
+                went_home = False
+                seen += 1
+                # the smoother: blend the new reading into the old one, so one twitchy frame cannot move the arm
+                sm = raw if sm is None else (sm[0] + smooth * (raw[0] - sm[0]), sm[1] + smooth * (raw[1] - sm[1]))
+                c = sm
+                ex, ey = c[0] - 0.5, c[1] - 0.5          # + means hand is right / below centre
+                now = time.time()
+                vx = vy = 0.0
+                if prev:
+                    dt = max(now - prev[2], 1e-3)
+                    vx, vy = (ex - prev[0]) / dt, (ey - prev[1]) / dt   # how fast the error is changing
+                prev = (ex, ey, now)
+                ux = kp * ex + kd * vx                   # P + D, in degrees
+                uy = kp * ey + kd * vy
+                dx = max(-STEP_CAP, min(STEP_CAP, -ux * (-1 if flip_x else 1)))
+                dy = max(-STEP_CAP, min(STEP_CAP, uy * (-1 if flip_y else 1)))
+                if abs(ex) < DEADBAND: dx = 0.0
+                if abs(ey) < DEADBAND or jy < 0: dy = 0.0
+                # low-pass on the action: the commanded step eases toward the computed one
+                adx += asmooth * (dx - adx); ady += asmooth * (dy - ady)
+                dx, dy = (adx if abs(adx) > 0.2 else 0.0), (ady if abs(ady) > 0.2 else 0.0)
+                # remember which way the hand went, so a search starts in that direction
+                if dx: search_dir = 1.0 if dx > 0 else -1.0
+                line = (f"{time.strftime('%H:%M:%S')} hand at ({c[0]:.2f},{c[1]:.2f}) "
+                        f"err ({ex:+.2f},{ey:+.2f}) by {how}; step j{jx} {dx:+.1f} j{jy} {dy:+.1f}")
+                moved = 0
+                j = []
+                if live and seen >= 2 and (dx or dy):
+                    j = list((await arm.get_joint_positions()).values)
+                    j[jx] += dx
+                    if jy >= 0:
+                        j[jy] += dy
+                    await stream(j)
+                    line += "  MOVED"
+                    moved = 1
+                log.writerow([f"{t0:.3f}", f"{raw[0]:.4f}", f"{raw[1]:.4f}", f"{c[0]:.4f}", f"{c[1]:.4f}",
+                              f"{ex:.4f}", f"{ey:.4f}", f"{dx:.2f}", f"{dy:.2f}", moved,
+                              " ".join(f"{v:.2f}" for v in j), pic])
+                print(line, f"({time.time() - t0:.2f}s)")
 
+        finally:
+            if live:
+                if pending and not pending.done():
+                    pending.cancel()
+                await arm.do_command({"set_speed": ARM_SPEED_DEFAULT, "set_acceleration": ARM_ACCEL_DEFAULT})
+                print("arm speed and acceleration restored to defaults")
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
@@ -265,5 +280,7 @@ if __name__ == "__main__":
     ap.add_argument("--asmooth", type=float, default=ASMOOTH, help="low-pass on the step (lower = smoother)")
     ap.add_argument("--arm", choices=["left", "right"], help="track this arm by the body (shoulder/elbow/wrist); beats --hand")
     ap.add_argument("--lost-go", metavar="BLOCK", help="after 10 s of fruitless search, press this pose block's go-to (e.g. greet)")
+    ap.add_argument("--speed", type=float, default=ARM_SPEED, help="arm joint speed deg/s while following")
+    ap.add_argument("--accel", type=float, default=ARM_ACCEL, help="arm joint acceleration deg/s^2 while following")
     a = ap.parse_args()
-    asyncio.run(main(a.live, a.flip_x, a.flip_y, a.kp, a.kd, a.jx, a.jy, a.hand, a.smooth, a.asmooth, a.arm, a.lost_go))
+    asyncio.run(main(a.live, a.flip_x, a.flip_y, a.kp, a.kd, a.jx, a.jy, a.hand, a.smooth, a.asmooth, a.arm, a.lost_go, a.speed, a.accel))
