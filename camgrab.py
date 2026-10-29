@@ -6,9 +6,13 @@ import asyncio, sys
 from viam.components.camera import Camera
 from viamarm import connect
 
-async def grab(cam):
-    """Return (jpeg bytes, depth bytes or None) from one get_images call."""
-    imgs, _ = await cam.get_images()
+async def grab(cam, want_depth=True):
+    """Return (jpeg bytes, depth bytes or None) from one get_images call.
+
+    The depth map is 1.9 MB and costs about 350 ms a frame over the cloud (measured
+    2026-10-29: 452 ms with it, 100 ms without). Ask for it only when you need it.
+    """
+    imgs, _ = await cam.get_images(**({} if want_depth else {"filter_source_names": ["color"]}))
     jpeg = depth = None
     for im in imgs:
         if im.mime_type == "image/jpeg":
