@@ -52,7 +52,7 @@ REC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "foll
 # left), elbow + moves the picture up (camera looks down). -1 for jy = never tilt.
 JOINT_X, JOINT_Y = 0, 2
 SEARCH_AFTER = 1.0        # s without a hand before the camera starts sweeping to look for it
-SEARCH_STEP = 2.0         # degrees per frame while sweeping
+SEARCH_STEP = 0.5         # degrees per frame while sweeping (streamed at ~10 frames/s = 5 deg/s, slow on purpose)
 SEARCH_LIMIT = 45.0       # degrees either side of where the sweep started
 
 
