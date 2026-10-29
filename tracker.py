@@ -39,9 +39,8 @@ def pose_detector():
 def arm_target(det, jpeg, side="left"):
     """(x, y, how) for the chosen arm, each 0..1 of the frame, or None.
 
-    how is "wrist" when the wrist is in view, "elbow+" when it is guessed past the elbow,
-    "shoulder+" when only the shoulder is, and the guess can be outside 0..1, which is useful:
-    it says which way to turn.
+    how is "wrist" when the wrist is in view, "elbow+" when it is guessed past the elbow.
+    The guess can be outside 0..1, which is useful: it says which way to turn.
     """
     bgr = cv2.imdecode(np.frombuffer(jpeg, "uint8"), cv2.IMREAD_COLOR)
     img = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
@@ -55,8 +54,8 @@ def arm_target(det, jpeg, side="left"):
     if e.visibility > VISIBLE and s.visibility > VISIBLE:
         # forearm roughly continues the upper arm; put the wrist 0.9 of an upper-arm past the elbow
         return e.x + 0.9 * (e.x - s.x), e.y + 0.9 * (e.y - s.y), "elbow+"
-    if s.visibility > VISIBLE:
-        return s.x + (0.25 if side == "right" else -0.25), s.y + 0.3, "shoulder+"
+    # no shoulder-only guess: on 2026-10-29 it fired 64 times in one run, pointed at the chest, and the
+    # camera chased it off the hand
     return None
 
 

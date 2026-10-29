@@ -159,13 +159,13 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
             t0 = time.time()
             jpeg, _ = await grab(cam, want_depth=False)
             how = "hand"
-            raw = None
-            if pose:
-                t = arm_target(pose, jpeg, arm_side)     # by the body: never confuses left with right
-                if t:
-                    raw, how = (t[0], t[1]), t[2]
-            if raw is None:                              # no body found (half out of frame): fall back to the hand
-                raw = hand_centre(det, jpeg, near=sm, want=want)
+            # the hand detector leads (it does not hallucinate); the body model only (a) picks which hand
+            # is the chosen arm at first lock and (b) points past the elbow when no hand is in view
+            body = arm_target(pose, jpeg, arm_side) if pose else None
+            near = sm if sm is not None else ((body[0], body[1]) if body else None)
+            raw = hand_centre(det, jpeg, near=near, want=None if body else want)
+            if raw is None and body and body[2] == "elbow+":
+                raw, how = (body[0], body[1]), "elbow+"
             pic = ""
             if time.time() - last_pic > REC_EVERY:
                 pic = f"{time.time():.3f}.jpg"
