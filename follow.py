@@ -33,6 +33,7 @@ from viam.components.switch import Switch
 from viam.proto.component.arm import JointPositions
 
 from camgrab import grab
+from hand_id import crop_for, is_left, model_ready
 from overlay import draw, publish
 from tracker import arm_target, pose_detector, wrists
 from viamarm import arm_of, connect
@@ -63,6 +64,7 @@ REC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "foll
 # So: pan with the waist, tilt with the elbow. Signs: waist + moves the picture right (camera looks
 # left), elbow + moves the picture up (camera looks down). -1 for jy = never tilt.
 POSE_EVERY = 3            # run the body model every Nth frame; it only anchors and vetoes, the hand model leads
+ID_MIN = 0.3              # the hand net's P(left) below which a hand is dropped (held-out: 99% accurate, 0.5 ms a crop)
 MIN_HAND = 0.045          # wrist-to-knuckle length as a fraction of the frame; Carl's at arm's length is ~0.12,
                           # a person 3 m behind him is ~0.03 (added 29 Oct after episode 5 followed a man behind him)
 JOINT_X, JOINT_Y = 0, 2
@@ -142,9 +144,15 @@ def hand_centre(det, jpeg, near=None, want=None, avoid=None, keep=None):
         size = math.hypot(pts[9].x - pts[0].x, pts[9].y - pts[0].y)   # wrist to middle knuckle, in frame widths
         if size < MIN_HAND:
             continue                                      # a far-away person's hand
-        cands.append((c, watch_score(bgr, pts)))
+        p_left = is_left(crop_for(bgr, pts)) if model_ready() else None
+        if p_left is not None and p_left < ID_MIN:
+            continue                                      # the net says this is not Carl's left hand
+        cands.append((c, watch_score(bgr, pts), p_left))
     if not cands:
         return None
+    if len(cands) > 1 and cands[0][2] is not None:
+        cands.sort(key=lambda c: -c[2])                  # several survivors: the net's favourite
+        return cands[0][0]
     if near is None and want == "watch" and len(cands) > 1:
         cands.sort(key=lambda c: -c[1])                  # first lock: the darkest wrist
         return cands[0][0]

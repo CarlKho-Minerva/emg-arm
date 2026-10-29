@@ -34,6 +34,17 @@ def _session():
     return _sess
 
 
+def model_ready():
+    """True when the net file is on disk and onnxruntime imports; the follower runs without it otherwise."""
+    if not os.path.exists(MODEL):
+        return False
+    try:
+        import onnxruntime  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def crop_for(bgr, pts):
     """Square crop around the 21 landmarks (objects with .x .y in 0..1), padded 40%, resized to 96x96 BGR."""
     h, w = bgr.shape[:2]
