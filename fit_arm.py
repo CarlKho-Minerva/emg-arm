@@ -33,7 +33,7 @@ def replay(trace, speed, accel, delay_s):
     return math.sqrt(err / max(n, 1))
 
 if __name__ == "__main__":
-    runs = sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data/follow/*-live")))
+    runs = sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data/follow/*-live*")))
     traces = [t for t in (load(r) for r in runs) if len(t) > 50]
     print(f"{len(traces)} runs with enough moves")
     best = []

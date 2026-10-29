@@ -182,6 +182,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--run")
     a = ap.parse_args()
-    runs = [a.run] if a.run else sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data/follow/*-live")))
+    runs = [a.run] if a.run else sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data/follow/*-live*")))
     grid = list(itertools.product((4.0, 8.0, 12.0), (0.0, 0.3), (0.4, 0.7), (0.4, 0.7), (0.0, 0.15, 0.3, 0.5)))
     main(runs, grid)
