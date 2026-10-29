@@ -19,6 +19,7 @@ import asyncio
 import csv
 import math
 import os
+import signal
 import struct
 import time
 import urllib.request
@@ -57,9 +58,9 @@ REC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "foll
 # So: pan with the waist, tilt with the elbow. Signs: waist + moves the picture right (camera looks
 # left), elbow + moves the picture up (camera looks down). -1 for jy = never tilt.
 JOINT_X, JOINT_Y = 0, 2
-SEARCH_AFTER = 2.0        # s without a hand before the camera starts sweeping to look for it
+SEARCH_AFTER = 1.0        # s without a hand before the camera starts sweeping to look for it
 SEARCH_STEP = 0.5         # degrees per frame while sweeping (streamed at ~10 frames/s = 5 deg/s, slow on purpose)
-SEARCH_LIMIT = 20.0
+SEARCH_LIMIT = 35.0
 LOST_GO_AFTER = 10.0
 # Arm speed and acceleration while following. Measured 2026-10-29 streaming 6-degree targets every
 # 100 ms on joint 4: default 60 deg/s + accel 500 stalled on 8 of 15 samples (stutter); 40 + 120 had
@@ -163,8 +164,11 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
             print(f"arm speed {speed:.0f} deg/s, acceleration {accel:.0f}")
         went_home = False
         seen = 0
+        stopping = asyncio.Event()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            asyncio.get_running_loop().add_signal_handler(sig, stopping.set)
         try:
-            while True:
+            while not stopping.is_set():
                 t0 = time.time()
                 jpeg, _ = await grab(cam, want_depth=False)
                 how = "hand"
