@@ -36,12 +36,13 @@ from viamarm import arm_of, connect
 MODEL = os.path.expanduser("~/.cache/hand_landmarker.task")
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
              "hand_landmarker/float16/1/hand_landmarker.task")
-GAIN = 12.0        # Kp: degrees of turn per full frame-width of error
-KD = 0.0           # Kd: degrees per (frame-width per second) of error change; damps overshoot
+GAIN = 8.0         # Kp: degrees of turn per full frame-width of error
+KD = 0.3           # Kd: degrees per (frame-width per second) of error change; damps overshoot
 STEP_CAP = 6.0     # never more than this per step, degrees (streamed, so a step is "head this way", not a stop)
 DEADBAND = 0.10    # fraction of frame: close enough, stop fiddling
 SMOOTH = 0.5       # 0..1: share of the new reading that gets through each frame (lower = smoother, laggier)
 ASMOOTH = 0.5      # same filter on the step the arm is told to take (the "low-pass on the action")
+COAST = 0.5        # s: after losing the hand, keep moving along its last direction this long
 REC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "follow")
 # Measured 2026-10-29 at the greet pose, +5 deg on each joint (picture shift in px, 1280x720):
 #   j0 waist      x+92  y-11   pan, clean
@@ -53,9 +54,9 @@ REC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "foll
 # So: pan with the waist, tilt with the elbow. Signs: waist + moves the picture right (camera looks
 # left), elbow + moves the picture up (camera looks down). -1 for jy = never tilt.
 JOINT_X, JOINT_Y = 0, 2
-SEARCH_AFTER = 1.0        # s without a hand before the camera starts sweeping to look for it
+SEARCH_AFTER = 2.0        # s without a hand before the camera starts sweeping to look for it
 SEARCH_STEP = 0.5         # degrees per frame while sweeping (streamed at ~10 frames/s = 5 deg/s, slow on purpose)
-SEARCH_LIMIT = 45.0       # degrees either side of where the sweep started
+SEARCH_LIMIT = 20.0       # degrees either side of where the sweep started
 
 
 def detector():
@@ -111,10 +112,9 @@ def hand_centre(det, jpeg, near=None, want=None):
         cands.append(((sum(p.x for p in palm) / 5, sum(p.y for p in palm) / 5), watch_score(bgr, pts)))
     if not cands:
         return None
-    if want == "watch" and len(cands) > 1:
-        cands.sort(key=lambda c: -c[1])                  # the darkest wrist first
-        if cands[0][1] > 0.15:
-            return cands[0][0]
+    if near is None and want == "watch" and len(cands) > 1:
+        cands.sort(key=lambda c: -c[1])                  # first lock: the darkest wrist
+        return cands[0][0]
     if near is None:
         return cands[0][0]
     return min((c[0] for c in cands), key=lambda c: (c[0] - near[0]) ** 2 + (c[1] - near[1]) ** 2)
@@ -157,6 +157,16 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
                 pic = f"{time.time():.3f}.jpg"
                 open(os.path.join(rec_dir, pic), "wb").write(jpeg)
                 last_pic = time.time()
+            if raw is None and prev is not None and time.time() - prev[2] < COAST and live:
+                # coast: the hand was just there and heading somewhere; keep heading that way
+                j = list((await arm.get_joint_positions()).values)
+                j[jx] += adx * 0.7
+                if jy >= 0: j[jy] += ady * 0.7
+                await stream(j)
+                adx *= 0.85; ady *= 0.85
+                log.writerow([f"{time.time():.3f}", "", "", "", "", "", "", f"{adx:.2f}", f"{ady:.2f}", 1, "", pic])
+                print(f"{time.strftime('%H:%M:%S')} no hand  coasting j{jx} {adx:+.1f}")
+                continue
             if raw is None:
                 seen = 0
                 prev = None
