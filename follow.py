@@ -34,7 +34,7 @@ from viam.proto.component.arm import JointPositions
 
 from camgrab import grab
 from overlay import draw, publish
-from tracker import arm_target, pose_detector
+from tracker import arm_target, pose_detector, wrists
 from viamarm import arm_of, connect
 
 MODEL = os.path.expanduser("~/.cache/hand_landmarker.task")
@@ -109,12 +109,13 @@ def watch_score(bgr, pts):
     return float((patch < 60).mean())
 
 
-def hand_centre(det, jpeg, near=None, want=None):
+def hand_centre(det, jpeg, near=None, want=None, avoid=None):
     """Palm centre (0..1, 0..1) of the hand to follow, or None.
 
     near: last known centre; of several hands, the closest to it wins (sticky tracking).
     want: "left" or "right" to keep only hands the detector labels so. The label can come
     out swapped on a camera that is not mirrored; test before trusting it.
+    avoid: a point (the other wrist, from the body model); any hand within 0.12 of it is dropped.
     """
     bgr = cv2.imdecode(np.frombuffer(jpeg, "uint8"), cv2.IMREAD_COLOR)
     img = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
@@ -124,7 +125,10 @@ def hand_centre(det, jpeg, near=None, want=None):
         if want and want != "watch" and hd[0].category_name.lower() != want:
             continue
         palm = [pts[i] for i in (0, 5, 9, 13, 17)]       # wrist + knuckles
-        cands.append(((sum(p.x for p in palm) / 5, sum(p.y for p in palm) / 5), watch_score(bgr, pts)))
+        c = (sum(p.x for p in palm) / 5, sum(p.y for p in palm) / 5)
+        if avoid and (c[0] - avoid[0]) ** 2 + (c[1] - avoid[1]) ** 2 < 0.12 ** 2:
+            continue                                      # that is the other hand
+        cands.append((c, watch_score(bgr, pts)))
     if not cands:
         return None
     if near is None and want == "watch" and len(cands) > 1:

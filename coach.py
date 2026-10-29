@@ -24,7 +24,7 @@ FOLLOW = ["--live", "--arm", "left", "--hand", "watch", "--lost-go", "greet",
           "--speed", "60", "--accel", "200", "--seconds", str(SECONDS)]
 
 PLAN = [
-    ("still", "Hold the left hand still so the green dot sits in the centre box for 10 s, then at the picture's left edge for 10 s, then at its right edge for 10 s.", "Jitter at rest; the dead zone."),
+    ("still", "Left hand up at chest height, in front of you. Hold it still for 10 s (the arm turns until the dot is in the box, then should hold). Then hold it still near the picture's left edge for 10 s, then near its right edge for 10 s.", "Jitter at rest; the dead zone."),
     ("slow", "Sweep the left hand so the dot goes from the picture's left edge to its right edge and back, slowly, about 5 s per sweep, for the whole 30 s.", "Tracking at the hand's usual speed."),
     ("fast", "Same sweep, fast: about 1 s per sweep. Keep it up for 30 s.", "The burst speeds the simulator saw."),
     ("cross", "Both hands up. Cross the left hand over the right and back, three times, slowly.", "Hand swaps."),
@@ -49,7 +49,7 @@ def preview_loop():
     from camgrab import grab
     from follow import DEADBAND, detector, hand_centre
     from overlay import draw, publish
-    from tracker import arm_target, pose_detector
+    from tracker import arm_target, pose_detector, wrists
     from viamarm import connect
 
     async def run():
@@ -68,7 +68,8 @@ def preview_loop():
                         # else the hand nearest the last one, else the wrist with the watch
                         body = arm_target(pose, jpeg, "left")
                         near = (body[0], body[1]) if body and body[2] == "wrist" else last
-                        c = hand_centre(det, jpeg, near=near, want=None if near else "watch")
+                        ws = wrists(pose, jpeg)
+                        c = hand_centre(det, jpeg, near=near, want=None if (body and body[2] == "wrist") else "watch", avoid=ws["right"])
                         last = c
                         how = "left arm by body" if body and body[2] == "wrist" else ("hand" if c else "")
                         publish(draw(jpeg, raw=c, sm=c, deadband=DEADBAND, status="PREVIEW  " + (how if c else "no hand")),

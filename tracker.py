@@ -63,6 +63,21 @@ def both_arms(det, jpeg):
     return {side: arm_target(det, jpeg, side) for side in ("left", "right")}
 
 
+def wrists(det, jpeg):
+    """Both wrists if the body is seen: {"left": (x, y) or None, "right": (x, y) or None}."""
+    bgr = cv2.imdecode(np.frombuffer(jpeg, "uint8"), cv2.IMREAD_COLOR)
+    img = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
+    res = det.detect(img)
+    out = {"left": None, "right": None}
+    if res.pose_landmarks:
+        p = res.pose_landmarks[0]
+        for side in out:
+            w = p[WRIST[side]]
+            if w.visibility > VISIBLE:
+                out[side] = (w.x, w.y)
+    return out
+
+
 if __name__ == "__main__":
     import asyncio
     from viam.components.camera import Camera
