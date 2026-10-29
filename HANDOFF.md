@@ -98,3 +98,28 @@ collar. For clench, the cheek muscle bulge (masseter) is the strongest spot.
   exact text, no payments, look at the real result before saying done, absolute paths for files.
 - One board on his body at a time; on-body leads go straight from pad to header, no breadboard on the body.
 - Do not give him a command you have not run on this Mac.
+
+## sEMG status (29 Oct evening)
+
+Written 29 Oct ~15:45 PT by the sEMG thread. Board only; the arm, Viam config, follow.py and coach.py were not touched.
+
+- **The board links on this Mac.** Port `/dev/cu.usbserial-110` (vendor 1A86, V1). `ssc link --port /dev/cu.usbserial-110`
+  printed LINK OK at 22:39 UTC: 2520 packets in 10 s, 249.73 samples/s, 0 dropped, 0 checksum failures. Laptop was on battery.
+  Every connect on this Mac goes through the driver's reset pulse ("no data at 9600 ... no data at 115200 ... pulsing reset"),
+  which takes about 12 s and is normal here. The port name encodes the USB socket: plug into a different socket and rerun `ssc ports`.
+- **Driver fix, committed in silent-speech-cerelog as cbd5b11.** The first three link runs said LINK NOT OK with 236-238 "dropped"
+  samples. Cause: 21-28 packets from the 9600-baud phase survive the buffer flush and sit in front of the real stream with a clock
+  about 4 s ahead. The drop counter read the backwards clock step as lost samples, every block's QC would have printed FAIL on
+  "dropped samples" and "sample rate", and the cue-to-sample search (a binary search that assumes a rising clock) could have put
+  an early cue on those packets. `cerelog.trim_stale_prefix()` now discards them (only when the step is inside the first 500
+  packets) and the count is printed as "N pre-handshake packets discarded". Tests 14/14, fake 3-trial record passes, real link passes.
+  The Zenbook on 25 Oct never had this prefix (0 backwards steps), so it is a macOS CH340 buffering quirk.
+- **Noise floor: not measurable yet.** With nothing wired, all 8 channels sit at the bottom of the range (-187.5 mV, railed 100%),
+  as an open input does. A floor appears only once an input is tied to SRB1 and Bias. The reference figure stays the 25 Oct bench
+  floor, about 4 uV, 22x the chip's rating.
+- **Next (Carl, on his body):** 4 leads per the pad table above; channels 3 to 8 "+" pins tied to Bias (the proven bench fix: a
+  breadboard rail as a Bias bus is fine, no body lead passes through it); charger out; then
+  `cd ~/CODELocalProjects/silent-speech-cerelog && .venv/bin/python -m ssc record --port /dev/cu.usbserial-110 --day sat --block 1 --sites 1=mental 2=post_lobule_R --ref mastoid_L --bias clavicle_L --limit 12`
+  (first 12 cues of the schedule: 3 rest, 2 jaw_clench, 2 lip_purse, 5 others; about a minute). The "activation, dB above rest"
+  table must show jaw_clench as the largest row on ch1, well above lip_purse, and the QC line "jaw clench" must be ok (3 dB is the
+  floor of the check; 10 dB or more is what a demo threshold needs). If it is under 3 dB the pads are off the muscle or SRB1/Bias is open.
