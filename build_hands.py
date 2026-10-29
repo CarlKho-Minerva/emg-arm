@@ -31,7 +31,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 FOLLOW = os.path.join(HERE, "data", "follow")
 OUT = os.path.join(HERE, "data", "hands")
 NEAR = 0.15      # wrist-to-wrist distance (frame units) that counts as "that is the same wrist"
-FAR = 0.25       # farther than this from both of Carl's wrists (both in view) = someone else's hand
 PAD = 0.40       # square crop side = longest side of the landmark box * (1 + PAD)
 SIZE = 96
 
@@ -70,7 +69,7 @@ def label_from(size, dl, dr, mp_handed):
     First pass (29 Oct) called every hand with no body wrist nearby OTHER; on inspection most of those
     were Carl's own left hand (ring in plain view) in frames where the body model saw no body. And the
     body's RIGHT disagreed with the hand model's handedness 18% of the time, LEFT only 1.4%. So now:
-    a side label needs the body AND the hand model to agree, and OTHER needs positive evidence.
+    a side label needs the body AND the hand model to agree, and OTHER means a hand too small to be his.
     """
     if size < MIN_HAND:
         return "other"                                   # a far-away person's hand
@@ -80,8 +79,8 @@ def label_from(size, dl, dr, mp_handed):
     if best < NEAR:
         side = "left" if dl is not None and dl == best else "right"
         return side if side == mp_handed else "unsure"
-    if dl is not None and dr is not None and best > FAR:
-        return "other"                                   # both of Carl's wrists seen, this hand is near neither
+    # a big hand far from both of Carl's wrists was OTHER in the second pass; of 112 such crops the sampled
+    # ones showed his ring, so the body model had the wrists wrong. OTHER is now far-away (small) hands only.
     return "unsure"
 
 

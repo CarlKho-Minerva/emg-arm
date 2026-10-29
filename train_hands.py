@@ -52,7 +52,7 @@ class HandNet(nn.Module):
 
 
 def load(data):
-    rows = list(csv.DictReader(open(os.path.join(data, "index.csv"))))
+    rows = [r for r in csv.DictReader(open(os.path.join(data, "index.csv"))) if r["label"] in CLASSES]   # "unsure" is dropped
     imgs = np.zeros((len(rows), SIZE, SIZE, 3), np.uint8)
     y = np.zeros(len(rows), np.int64)
     held = np.zeros(len(rows), bool); epi = np.zeros(len(rows), bool)
