@@ -40,12 +40,12 @@ from viamarm import arm_of, connect
 MODEL = os.path.expanduser("~/.cache/hand_landmarker.task")
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
              "hand_landmarker/float16/1/hand_landmarker.task")
-GAIN = 8.0         # Kp: degrees of turn per full frame-width of error
+GAIN = 4.0         # Kp (held-out best 29 Oct: 4 with heavy smoothing; 8 scored -0.066 vs -0.038): degrees of turn per full frame-width of error
 KD = 0.3           # Kd: degrees per (frame-width per second) of error change; damps overshoot
 STEP_CAP = 6.0     # never more than this per step, degrees (streamed, so a step is "head this way", not a stop)
 DEADBAND = 0.10    # fraction of frame: close enough, stop fiddling
-SMOOTH = 0.5       # 0..1: share of the new reading that gets through each frame (lower = smoother, laggier)
-ASMOOTH = 0.5      # same filter on the step the arm is told to take (the "low-pass on the action")
+SMOOTH = 0.7       # 0..1: share of the new reading that gets through each frame (lower = smoother, laggier)
+ASMOOTH = 0.7      # same filter on the step the arm is told to take (the "low-pass on the action")
 COAST = 0.5        # s: after losing the hand, keep moving along its last direction this long
 LOOKAHEAD = 0.15   # s: aim where the hand will be, from its speed over the last few frames (state = position + velocity)
 REC_EVERY = 0.0    # s between saved pictures; 0 = every frame (about 2 MB/s, stitch with stitch.sh)
