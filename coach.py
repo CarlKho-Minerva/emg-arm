@@ -33,6 +33,8 @@ PLAN = [
 ]
 PER_TAG = 5
 ORDER = [tag for tag, _, _ in PLAN for _ in range(PER_TAG)]   # still x5, slow x5, ...
+# 31 to 40 (added 29 Oct 17:05): the "after" set for the hand-selection fix that episodes 1 to 30 ran without
+ORDER += ["cross"] * 5 + ["rest"] * 5
 
 state = {"running": False, "started": 0.0, "last": None, "proc": None, "log": "", "phase": "", "discard": False}
 LIVE_JPG = os.path.join(HERE, "data", "live.jpg")
@@ -199,7 +201,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;p
 .ok{color:var(--ok)}
 .sig{padding:10px 16px;border-right:1px solid var(--line);font-variant-numeric:tabular-nums}.sig:last-child{border-right:0}.sig div:last-child{font-size:18px;font-weight:500}
 </style></head><body><main>
-<div class="k">Episode <span id="n">1</span> of 30 <span id="held"></span></div>
+<div class="k">Episode <span id="n">1</span> of <span id="total">40</span> <span id="held"></span></div>
 <h1 id="tag">still</h1>
 <div class="card" style="padding:0;overflow:hidden;position:relative">
   <div id="big" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:120px;font-weight:700;color:#fff;background:rgba(0,0,0,.45);letter-spacing:-.04em"></div>
@@ -240,11 +242,11 @@ const PLAN=%PLAN%, ORDER=%ORDER%, SECS=%SECS%;
 async function tick(){
   const s=await (await fetch('/state')).json();
   const i=s.count; const tag=ORDER[i]||'done';
-  document.getElementById('n').textContent=Math.min(i+1,30);
+  document.getElementById('n').textContent=Math.min(i+1,ORDER.length);
   document.getElementById('tag').textContent=tag;
-  const p=PLAN.find(x=>x[0]===tag)||['','All 30 done. Run sim.py and fit_arm.py.',''];
+  const p=PLAN.find(x=>x[0]===tag)||['','All done. Run sim.py, fit_arm.py and wronghand.py.',''];document.getElementById('total').textContent=ORDER.length;
   document.getElementById('do').textContent=p[1]; document.getElementById('why').textContent=p[2];
-  document.getElementById('start').disabled=s.running||i>=30;
+  document.getElementById('start').disabled=s.running||i>=ORDER.length;
   document.getElementById('stop').disabled=!s.running;
   document.getElementById('log').textContent=s.log||'';
   if(s.running){
