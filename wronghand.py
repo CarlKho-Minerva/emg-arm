@@ -13,7 +13,9 @@ from tracker import pose_detector, wrists
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SHEET = os.path.join(HERE, "data", "episodes.json")
-NEAR = 0.15
+NEAR_WRONG = 0.25   # chased point this close to the right wrist, and nearer it than the left: wrong hand
+NEAR_NOBODY = 0.35  # further than this from both wrists: chasing someone or something else
+# (0.15 for both flagged 85% of frames as "nobody" on 29 Oct: the palm centre sits ~0.1 from the wrist at this range)
 
 
 def check(run_dir, det):
@@ -32,9 +34,9 @@ def check(run_dir, det):
         p = (float(r["sm_x"]), float(r["sm_y"]))
         d = lambda w: float("inf") if w is None else ((p[0] - w[0]) ** 2 + (p[1] - w[1]) ** 2) ** 0.5
         dl, dr = d(ws["left"]), d(ws["right"])
-        if dr < dl and dr < NEAR:
+        if dr < dl and dr < NEAR_WRONG:
             wrong += 1
-        elif dl >= NEAR and dr >= NEAR:
+        elif dl >= NEAR_NOBODY and dr >= NEAR_NOBODY:
             nobody += 1
     return wrong, nobody, checked, (wrong + nobody) / max(len(rows), 1)
 
