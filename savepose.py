@@ -2,6 +2,7 @@
 
     .venv/bin/python savepose.py greet      # creates or overwrites the block "greet"
     .venv/bin/python savepose.py greet --go # later: send the arm back to it
+    .venv/bin/python savepose.py greet --deg -46.7,-86.3,-155.2,12.5,-7.1,-12.5   # from numbers, not the arm
 
 Same program as the organisers' "home" block (vmodutils/arm-position-saver); joints are
 stored in radians because that is what the block expects.
@@ -14,9 +15,10 @@ from viamarm import arm_of, connect
 
 MACHINE = "72648a81-5cbf-4d14-9446-a7ec4a8d51a8"
 
-async def save(name):
-    async with await connect() as machine:
-        deg = list((await arm_of(machine).get_joint_positions()).values)
+async def save(name, deg=None):
+    if deg is None:
+        async with await connect() as machine:
+            deg = list((await arm_of(machine).get_joint_positions()).values)
     rad = [math.radians(d) for d in deg]
     vc = await ViamClient.create_from_dial_options(DialOptions(
         credentials=Credentials(type="api-key", payload=os.environ["VIAM_API_KEY"]),
@@ -44,4 +46,9 @@ async def go(name):
 
 if __name__ == "__main__":
     n = sys.argv[1]
-    asyncio.run(go(n) if "--go" in sys.argv else save(n))
+    if "--go" in sys.argv:
+        asyncio.run(go(n))
+    elif "--deg" in sys.argv:
+        asyncio.run(save(n, [float(x) for x in sys.argv[sys.argv.index("--deg") + 1].split(",")]))
+    else:
+        asyncio.run(save(n))
