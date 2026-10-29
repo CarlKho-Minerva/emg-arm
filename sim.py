@@ -27,7 +27,8 @@ import itertools
 import math
 import os
 
-DEG_PER_WIDTH = 70.0        # degrees of waist turn across one picture width (5 deg = 92 px of 1280)
+DEG_PER_WIDTH = 47.0        # degrees of waist turn across one picture width (5 deg = 135 px of 1280 at the
+                            # eye-level greet pose of 29 Oct 15:45; it was 70 at the earlier, lower pose)
 DT = 0.05                   # s per simulated frame (the live loop ran at about 20 Hz)
 DELAY_S = 0.20              # camera + network + detection + arm reaction; fitted from the logs by fit_arm.py (29 Oct: 0.2 s)
 STEP_CAP = 6.0

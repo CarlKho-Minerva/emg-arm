@@ -57,6 +57,9 @@ REC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "foll
 #   j3 forearm    roll only (-4 deg)
 #   j4 wrist nod  x-29  y-69   mixed
 #   j5 wrist spin x-42  y+59   mixed, with roll
+# Re-measured 15:45 at the eye-level greet pose (-38, -68, -107, 189, -50, -185): j0 x+135 y+8 (pan),
+# j1 y+118, j2 x-25 y-95 (tilt), j3 x-114 + roll, j4 y-77, j5 mixed. Same jobs, same signs, more
+# pixels per degree because the camera is nearer.
 # So: pan with the waist, tilt with the elbow. Signs: waist + moves the picture right (camera looks
 # left), elbow + moves the picture up (camera looks down). -1 for jy = never tilt.
 JOINT_X, JOINT_Y = 0, 2
