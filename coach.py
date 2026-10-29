@@ -321,4 +321,5 @@ if __name__ == "__main__":
     port = int(os.environ.get("COACH_PORT", "8787"))
     print(f"episode coach on http://localhost:{port}  (next: episode {next_index() + 1} of {len(ORDER)})")
     threading.Thread(target=preview_loop, daemon=True).start()
-    HTTPServer(("127.0.0.1", port), H).serve_forever()
+    # 0.0.0.0 so the page can be opened from the Mac when the coach runs on the robot's box (LAN only)
+    HTTPServer((os.environ.get("COACH_BIND", "127.0.0.1"), port), H).serve_forever()

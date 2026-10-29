@@ -12,7 +12,9 @@ from viam.components.gripper import Gripper
 from viam.robot.client import RobotClient
 
 load_dotenv(Path.home() / ".config/carl-life-os/.env")
+load_dotenv(Path(__file__).resolve().parent / ".env")   # on the robot's own box the secrets sit next to the code
 
+# On the box itself, talk to viam-server on localhost: no network hop at all.
 ADDRESS = os.environ["VIAM_MACHINE_ADDRESS"]
 
 
