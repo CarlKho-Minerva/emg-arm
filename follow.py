@@ -205,13 +205,24 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
                     t_start = time.time()
                     print("READY: first frame; the clock starts now", flush=True)
                 how = "hand"
-                # the hand detector leads (it does not hallucinate); the body model only (a) picks which hand
-                # is the chosen arm at first lock and (b) points past the elbow when no hand is in view
-                body = arm_target(pose, jpeg, arm_side) if pose else None
-                near = sm if sm is not None else ((body[0], body[1]) if body else None)
-                raw = hand_centre(det, jpeg, near=near, want=None if body else want)
+                # the hand detector leads (it does not hallucinate); the body model, every POSE_EVERY frames,
+                # (a) anchors on the chosen wrist, (b) vetoes any hand nearer the other wrist, (c) points past
+                # the elbow when no hand is in view
+                frame_n += 1
+                if pose and frame_n % POSE_EVERY == 1:
+                    body = arm_target(pose, jpeg, arm_side)
+                    ws = wrists(pose, jpeg)
+                    other = ws["right" if arm_side == "left" else "left"]   # the wrist we must NOT follow
+                    mine = ws[arm_side]
+                    body_cache = (body, other, mine)
+                body, other, mine = body_cache if pose else (None, None, None)
+                seen_wrist = bool(body and body[2] == "wrist")
+                near = (body[0], body[1]) if seen_wrist else sm
+                raw = hand_centre(det, jpeg, near=near, want=None if seen_wrist else want, avoid=other, keep=mine)
                 if raw is None and body and body[2] == "elbow+":
                     raw, how = (body[0], body[1]), "elbow+"
+                t_det = time.time()
+                tel = lambda: [f"{(t_grab - t0) * 1000:.0f}", f"{(t_det - t_grab) * 1000:.0f}", f"{(time.time() - t0) * 1000:.0f}"]
                 pic = ""
                 if time.time() - last_pic > REC_EVERY:
                     pic = f"{time.time():.3f}.jpg"
