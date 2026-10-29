@@ -29,12 +29,12 @@ PLAN = [
     ("fast", "Same sweep, fast: about 1 s per sweep. Keep it up for 30 s.", "The burst speeds the simulator saw."),
     ("cross", "Both hands up. Cross the left hand over the right and back, three times, slowly.", "Hand swaps."),
     ("exit", "Drift the left hand out of the picture to the left, keep it out 3 s, bring it back. Then the same to the right. Repeat.", "Coasting, search, the elbow guess."),
-    ("rest", "Left hand lies on the keyboard and types. Right hand gestures freely.", "Staying on the left hand when the right one is busier."),
+    ("rest", "Left hand held still at chest height, in view. Right hand waves, points and gestures freely the whole 30 s, crossing in front if you like.", "Does it stay on the still left hand while the right one is the busier, more obvious target."),
 ]
 PER_TAG = 5
 ORDER = [tag for tag, _, _ in PLAN for _ in range(PER_TAG)]   # still x5, slow x5, ...
 
-state = {"running": False, "started": 0.0, "last": None, "proc": None, "log": "", "phase": ""}
+state = {"running": False, "started": 0.0, "last": None, "proc": None, "log": "", "phase": "", "discard": False}
 LIVE_JPG = os.path.join(HERE, "data", "live.jpg")
 LIVE_JSON = os.path.join(HERE, "data", "live.json")
 
@@ -165,6 +165,9 @@ def run_episode(tag):
         tail.append(line.rstrip()); tail = tail[-6:]
         state["log"] = "\n".join(tail)
     proc.wait()
+    if state["discard"]:
+        state.update(running=False, proc=None, phase="", discard=False, log="episode stopped and discarded")
+        return
     new = set(glob.glob(os.path.join(HERE, "data", "follow", "*"))) - before
     run_dir = max(new, key=os.path.getmtime) if new else None
     result = {"i": next_index(), "tag": tag, "run": os.path.basename(run_dir) if run_dir else None,
@@ -218,7 +221,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;p
 <div class="card">
   <div class="k">Before you press Start</div>
   <div>You in the chair, laptop pulled back, one hand on the red button. Start sends the arm to greet first (about 4 s), then the 30 s begins.</div>
-  <p><button id="start" onclick="start()">Start episode</button> <span id="count" class="k"></span></p>
+  <p><button id="start" onclick="start()">Start episode</button> <button id="stop" onclick="stop()" style="background:#c00;color:#fff" disabled>Stop and discard</button> <span id="count" class="k"></span></p>
   <div class="bar"><i id="bar"></i></div>
   <pre id="log"></pre>
 </div>
@@ -242,6 +245,7 @@ async function tick(){
   const p=PLAN.find(x=>x[0]===tag)||['','All 30 done. Run sim.py and fit_arm.py.',''];
   document.getElementById('do').textContent=p[1]; document.getElementById('why').textContent=p[2];
   document.getElementById('start').disabled=s.running||i>=30;
+  document.getElementById('stop').disabled=!s.running;
   document.getElementById('log').textContent=s.log||'';
   if(s.running){
     if(s.phase!=='running'||!s.started){document.getElementById('count').textContent=s.phase+'...';document.getElementById('bar').style.width='0';}
@@ -263,6 +267,7 @@ async function tick(){
   document.getElementById('sum').textContent=`  tuning set mean ${m(tr)} (${tr.length}), held-out mean ${m(ho)} (${ho.length})`;
 }
 async function start(){document.getElementById('start').disabled=true;await fetch('/start',{method:'POST'});}
+async function stop(){document.getElementById('stop').disabled=true;await fetch('/stop',{method:'POST'});}
 setInterval(tick,500);tick();
 async function live(){
   const img=document.getElementById('live'); img.src='/live.jpg?'+Date.now();
@@ -309,6 +314,14 @@ class H(BaseHTTPRequestHandler):
             self._send(page, "text/html; charset=utf-8")
 
     def do_POST(self):
+        if self.path == "/stop" and state["running"] and state["proc"]:
+            state["discard"] = True
+            try:
+                state["proc"].send_signal(__import__("signal").SIGINT)   # follow.py restores the arm's defaults on SIGINT
+            except Exception:
+                pass
+            self._send(json.dumps({"stopped": True}))
+            return
         if self.path == "/start" and not state["running"] and next_index() < len(ORDER):
             tag = ORDER[next_index()]
             threading.Thread(target=run_episode, args=(tag,), daemon=True).start()
