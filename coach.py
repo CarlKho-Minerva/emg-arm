@@ -24,7 +24,7 @@ FOLLOW = ["--live", "--arm", "left", "--hand", "watch", "--lost-go", "greet",
           "--speed", "60", "--accel", "200", "--seconds", str(SECONDS)]
 
 PLAN = [
-    ("still", "Left hand up at chest height, in front of you. Hold it still for 10 s (the arm turns until the dot is in the box, then should hold). Then hold it still near the picture's left edge for 10 s, then near its right edge for 10 s.", "Jitter at rest; the dead zone."),
+    ("still", "Left hand up at chest height. Hold it still 10 s: the arm settles with the dot in the box. Then move the hand quickly so the dot jumps to the picture's left edge and FREEZE the hand in space: the arm turns until the dot is back in the box (about 10 s). Then the same to the right edge.", "Jitter at rest, and two step responses: how fast it recentres and whether it overshoots."),
     ("slow", "Sweep the left hand so the dot goes from the picture's left edge to its right edge and back, slowly, about 5 s per sweep, for the whole 30 s.", "Tracking at the hand's usual speed."),
     ("fast", "Same sweep, fast: about 1 s per sweep. Keep it up for 30 s.", "The burst speeds the simulator saw."),
     ("cross", "Both hands up. Cross the left hand over the right and back, three times, slowly.", "Hand swaps."),
