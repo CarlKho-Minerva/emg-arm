@@ -1,2 +1,5 @@
 viam-sdk
 python-dotenv
+mediapipe
+opencv-python
+numpy
