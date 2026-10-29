@@ -62,6 +62,7 @@ REC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "foll
 # pixels per degree because the camera is nearer.
 # So: pan with the waist, tilt with the elbow. Signs: waist + moves the picture right (camera looks
 # left), elbow + moves the picture up (camera looks down). -1 for jy = never tilt.
+POSE_EVERY = 3            # run the body model every Nth frame; it only anchors and vetoes, the hand model leads
 MIN_HAND = 0.045          # wrist-to-knuckle length as a fraction of the frame; Carl's at arm's length is ~0.12,
                           # a person 3 m behind him is ~0.03 (added 29 Oct after episode 5 followed a man behind him)
 JOINT_X, JOINT_Y = 0, 2
@@ -147,6 +148,8 @@ def hand_centre(det, jpeg, near=None, want=None, avoid=None):
 async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, want=None, smooth=SMOOTH, asmooth=ASMOOTH, arm_side=None, lost_go=None, speed=ARM_SPEED, accel=ARM_ACCEL,
                look=LOOKAHEAD, tag="", seconds=0.0):
     hist = []         # the last few smoothed hand positions with their times: the state
+    body_cache = (None, None)   # (body, other wrist) from the last body-model run
+    frame_n = 0
     adx = ady = 0.0   # the low-passed step
     det = detector()
     pose = pose_detector() if arm_side else None

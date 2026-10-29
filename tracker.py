@@ -15,9 +15,12 @@ import mediapipe as mp
 import numpy as np
 from mediapipe.tasks.python import BaseOptions, vision
 
-MODEL = os.path.expanduser("~/.cache/pose_landmarker_heavy.task")
+# heavy: 32 ms on the Mac (M5), 153 ms on the robot's box (x86, no GPU); full: 64 ms there; lite: 47 ms.
+# POSE_MODEL=full on the box, heavy on the Mac (measured 2026-10-29).
+POSE_MODEL = os.environ.get("POSE_MODEL", "heavy")
+MODEL = os.path.expanduser(f"~/.cache/pose_landmarker_{POSE_MODEL}.task")
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
-             "pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task")
+             f"pose_landmarker_{POSE_MODEL}/float16/1/pose_landmarker_{POSE_MODEL}.task")
 # landmark numbers in the pose model
 SHOULDER = {"left": 11, "right": 12}
 ELBOW = {"left": 13, "right": 14}
