@@ -46,6 +46,7 @@ DEADBAND = 0.10    # fraction of frame: close enough, stop fiddling
 SMOOTH = 0.5       # 0..1: share of the new reading that gets through each frame (lower = smoother, laggier)
 ASMOOTH = 0.5      # same filter on the step the arm is told to take (the "low-pass on the action")
 COAST = 0.5        # s: after losing the hand, keep moving along its last direction this long
+LOOKAHEAD = 0.15   # s: aim where the hand will be, from its speed over the last few frames (state = position + velocity)
 REC_EVERY = 0.0    # s between saved pictures; 0 = every frame (about 2 MB/s, stitch with stitch.sh)
 REC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "follow")
 # Measured 2026-10-29 at the greet pose, +5 deg on each joint (picture shift in px, 1280x720):
@@ -130,14 +131,16 @@ def hand_centre(det, jpeg, near=None, want=None):
     return min((c[0] for c in cands), key=lambda c: (c[0] - near[0]) ** 2 + (c[1] - near[1]) ** 2)
 
 
-async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, want=None, smooth=SMOOTH, asmooth=ASMOOTH, arm_side=None, lost_go=None, speed=ARM_SPEED, accel=ARM_ACCEL):
+async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, want=None, smooth=SMOOTH, asmooth=ASMOOTH, arm_side=None, lost_go=None, speed=ARM_SPEED, accel=ARM_ACCEL,
+               look=LOOKAHEAD, tag="", seconds=0.0):
+    hist = []         # the last few smoothed hand positions with their times: the state
     adx = ady = 0.0   # the low-passed step
     det = detector()
     pose = pose_detector() if arm_side else None
     prev = None   # (ex, ey, time) of the last frame that saw a hand
     sm = None     # smoothed hand centre
     # every run is recorded: one CSV row per frame, a picture every 0.5 s, for learning from later
-    run = time.strftime("%Y%m%d-%H%M%S") + ("-live" if live else "-dry")
+    run = time.strftime("%Y%m%d-%H%M%S") + ("-live" if live else "-dry") + (f"-{tag}" if tag else "")
     rec_dir = os.path.join(REC_DIR, run)
     os.makedirs(rec_dir, exist_ok=True)
     log_f = open(os.path.join(rec_dir, "frames.csv"), "w", newline="", buffering=1)   # line-buffered: survives a kill
@@ -168,7 +171,8 @@ async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, wan
         for sig in (signal.SIGINT, signal.SIGTERM):
             asyncio.get_running_loop().add_signal_handler(sig, stopping.set)
         try:
-            while not stopping.is_set():
+            t_start = time.time()
+            while not stopping.is_set() and (seconds <= 0 or time.time() - t_start < seconds):
                 t0 = time.time()
                 jpeg, _ = await grab(cam, want_depth=False)
                 how = "hand"
@@ -286,5 +290,9 @@ if __name__ == "__main__":
     ap.add_argument("--lost-go", metavar="BLOCK", help="after 10 s of fruitless search, press this pose block's go-to (e.g. greet)")
     ap.add_argument("--speed", type=float, default=ARM_SPEED, help="arm joint speed deg/s while following")
     ap.add_argument("--accel", type=float, default=ARM_ACCEL, help="arm joint acceleration deg/s^2 while following")
+    ap.add_argument("--look", type=float, default=LOOKAHEAD, help="s to aim ahead of the hand from its velocity; 0 = off")
+    ap.add_argument("--tag", default="", help="episode label, goes in the recording folder name (see EPISODES.md)")
+    ap.add_argument("--seconds", type=float, default=0.0, help="stop after this many seconds (0 = until Ctrl-C)")
     a = ap.parse_args()
-    asyncio.run(main(a.live, a.flip_x, a.flip_y, a.kp, a.kd, a.jx, a.jy, a.hand, a.smooth, a.asmooth, a.arm, a.lost_go, a.speed, a.accel))
+    asyncio.run(main(a.live, a.flip_x, a.flip_y, a.kp, a.kd, a.jx, a.jy, a.hand, a.smooth, a.asmooth, a.arm, a.lost_go,
+                     a.speed, a.accel, a.look, a.tag, a.seconds))
