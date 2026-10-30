@@ -26,6 +26,7 @@ from viam.proto.common import Pose, PoseInFrame
 from viam.services.motion import MotionClient
 
 from camgrab import grab
+from clench import last_clench_time
 from follow import MIN_HAND, detector, hand_centre
 from handpos import hand_in_world
 from tracker import arm_target, pose_detector, wrists
@@ -168,6 +169,15 @@ async def handover(rig):
                     still_since = None; sm = None
                 continue
             seen_n += 1; last_seen = time.time()
+            # a jaw clench (from clench.py's file) lets go at once, whatever the camera thinks
+            if at_target and last_clench_time() > t_start:
+                await say("CLENCH: letting go")
+                if live:
+                    if pending and not pending.done():
+                        pending.cancel()
+                    await gripper.open()
+                await asyncio.sleep(2)
+                break
             # "take it": only once the arm is above the palm (claw pose), and the palm is centred under it
             # and big in the picture; TAKE_S of that and it opens. Never while still following.
             ex0, ey0 = raw[0] - under[0], raw[1] - under[1]
