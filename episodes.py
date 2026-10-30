@@ -151,8 +151,13 @@ def stats():
         ds = d.pop("duration_s")
         d["avg_s"] = round(sum(ds) / len(ds), 1) if ds else None
     live = [r for r in rows if r.get("source") == "live"]
+    follow = sorted([r for r in rows if r.get("kind") == "follow" and r.get("t_start")], key=lambda r: r["t_start"])
+    follow_runs = [{"t": r["t_start"], "tag": r.get("tag"), "rms": r.get("rms_error"), "lost": r.get("lost_share"),
+                    "reward": r.get("reward"), "held_out": r.get("held_out"), "frames": r.get("frames"), "seen": r.get("seen")} for r in follow]
+    timeline = [{"t": r["t_start"], "kind": r.get("kind"), "ok": r.get("ok"), "source": r.get("source"), "reason": r.get("reason", "")[:60],
+                 "duration_s": r.get("duration_s")} for r in sorted(rows, key=lambda r: r.get("t_start") or 0) if r.get("t_start")]
     return {"total": len(rows), "live": len(live), "backfill": len(rows) - len(live), "by_kind": by,
-            "last": rows[-7:][::-1], "mongo": mongo_status()}
+            "last": rows[-7:][::-1], "mongo": mongo_status(), "follow_runs": follow_runs, "timeline": timeline}
 
 
 def backfill():

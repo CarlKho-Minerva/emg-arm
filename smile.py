@@ -87,9 +87,7 @@ def calibrate(cam=0, seconds=3.0):
     countdown, a bar, then a card with the numbers. Thresholds halfway between rest and the gesture."""
     import json, statistics
     det = detector()
-    cap = cv2.VideoCapture(cam)
-    if not cap.isOpened():
-        raise SystemExit("no camera")
+    cap = open_camera(cam)
     win = "Served With a Smile: calibration"
     t0 = time.time(); results = {}; frames = []
     steps = [("rest", "RELAX. Straight face."), ("left", "Pull your LEFT cheek up. A smirk."), ("right", "Pull your RIGHT cheek up."),
@@ -217,15 +215,18 @@ def open_camera(prefer=0):
         cap = cv2.VideoCapture(idx)
         if not cap.isOpened():
             tried.append(f"{idx}: did not open"); continue
-        for _ in range(20):                       # up to 2 s for the first frame
+        dark = 0
+        for _ in range(30):                       # up to 3 s for a real first frame
             ok, frame = cap.read()
             if ok and frame is not None:
+                if frame.mean() < 4.0:            # black frames: the device is held by another app (RoomCam's ffmpeg, 30 Oct 14:17) or is an absent iPhone
+                    dark += 1; time.sleep(0.1); continue
                 print(f"camera {idx}: {frame.shape[1]}x{frame.shape[0]}", flush=True)
                 return cap
             time.sleep(0.1)
-        tried.append(f"{idx}: opened, no frame"); cap.release()
-    raise SystemExit("no camera gives a frame (" + "; ".join(tried) + "). macOS: System Settings > Privacy > Camera > Terminal on; "
-                     "close other apps using the camera; unplug the iPhone.")
+        tried.append(f"{idx}: opened, " + ("only black frames" if dark else "no frame")); cap.release()
+    raise SystemExit("no camera gives a picture (" + "; ".join(tried) + "). Black frames = another app holds the camera: "
+                     "pkill -f RoomCam.app/Contents/MacOS/ffmpeg. No frame = System Settings > Privacy > Camera > Terminal; unplug the iPhone.")
 
 
 def load_calib():
