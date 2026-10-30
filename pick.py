@@ -26,6 +26,7 @@ from viamarm import connect
 ABOVE_MM = 120.0
 LABEL_Z = 100.0        # mm above the table: the blue label, the middle of the bottle's body
 PRE_MM = 160.0         # stop this far short of the bottle's axis before sliding in
+MIN_PRE_DIST = 530.0   # mm from the base: the nearest a level pre-grasp pose can be without self-collision
 IN_MM = 35.0           # gripper frame this far short of the axis when closing (fingers reach past it)
 LIFT_MM = 100.0
 MAX_TRIES = 4
@@ -75,17 +76,20 @@ async def pick_once(rig, attempt):
     cx, cy = c[0], c[1]
     flat = math.hypot(cx, cy)
     dx, dy = cx / flat, cy / flat                       # from the base toward the bottle, level
-    pre = (cx - dx * PRE_MM, cy - dy * PRE_MM, LABEL_Z)
+    # the pre-grasp point must not come nearer the base than MIN_PRE_DIST: at 49 cm a level wrist folds the arm
+    # onto itself (planner: self-collision, 29 Oct 17:35); 53 to 55 cm worked
+    pre_d = max(flat - PRE_MM, MIN_PRE_DIST)
+    pre = (dx * pre_d, dy * pre_d, LABEL_Z)
     grasp = (cx - dx * IN_MM, cy - dy * IN_MM, LABEL_Z)
     await say(f"bottle (conf {conf:.2f}) at x={cx:.0f} y={cy:.0f}, {flat:.0f} mm from the base; "
               f"side grasp at the label, z={LABEL_Z:.0f}")
     if not rig.live:
         await say(f"would go to x={pre[0]:.0f} y={pre[1]:.0f} level, facing it; slide to x={grasp[0]:.0f} y={grasp[1]:.0f}; close; lift {LIFT_MM:.0f}")
         return True
-    face = (dx, dy, 0.0)
     ok = False
-    for theta in (0.0, 90.0):                             # which way the fingers close: try both
-        ok = await plan_to(rig, *pre, f"beside the bottle, level (theta {theta:.0f})", o=face, theta=theta)
+    for tilt, theta in ((0.0, 0.0), (0.0, 90.0), (-0.35, 0.0), (-0.35, 90.0)):   # level first, then nosing down a little
+        face = (dx, dy, tilt)
+        ok = await plan_to(rig, *pre, f"beside the bottle (tilt {tilt:.2f}, theta {theta:.0f})", o=face, theta=theta)
         if ok:
             break
     if not ok:
