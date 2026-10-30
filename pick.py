@@ -38,7 +38,7 @@ CUBE_ABOVE = 160.0     # mm: hover height of the steered point over the cube
 CUBE_LOOKS = (240.0, 160.0)   # hover heights for the close looks (coarse to fine), before the descent
 CUBE_PASSES = 3        # look-descend passes per attempt before going back to home
 SERVO_MAX, SERVO_DONE, SERVO_GAIN = 4, 5.0, 0.8
-IN_HAND_RATIO = 2.5    # after the lift, a blob this many times bigger than at the hover is the cube in the fingers   # visual servo at the hover: iterations, done when under 5 mm, step = 0.8 x error
+SHIFT_MM = 100.0       # sideways move after the lift that tells a cube in the hand from one on the table   # visual servo at the hover: iterations, done when under 5 mm, step = 0.8 x error
 CUBE_MAX_SHIFT = 80.0  # mm: a close look that moves the estimate more than this is a different blob; ignore it
 CUBE_STAGES = (85.0, 76.0, 70.0)   # 70 is the floor: Carl eyeballed the fingertips there as "perfect, before it hits the table" (29 Oct 18:41)
                                    # unknown distance below the steered point, so go down in steps and stop at the first hold
@@ -271,17 +271,27 @@ async def pick_cube_once(rig, colour, attempt):
     rig.last_grasp = (cx, cy)
     # the truthful check: after the lift, is the cube gone from its spot?
     await asyncio.sleep(0.4)
-    r = await step("look at the spot", find_cube_close(rig.machine, rig.cam, rig.intr, colour))
+    # the truthful check: shift sideways and look. A cube on the table stays at the spot; a cube in the
+    # hand moves with the gripper (straight above the spot both land on the same pixel, so that view lies)
     posn = await settled_fingers(rig)
-    on_table = bool(r and r[0] and math.hypot(r[0][0] - cx, r[0][1] - cy) < 60 and r[1] < IN_HAND_RATIO * look_area)
+    await plan_to(rig, cx + SHIFT_MM, cy, CUBE_ABOVE, f"shift {SHIFT_MM:.0f} mm to check")
+    await asyncio.sleep(0.4)
+    r = await step("look after the shift", find_cube_close(rig.machine, rig.cam, rig.intr, colour))
+    on_table = in_hand = False
     if r and r[0]:
-        await say(f"   after the lift: {colour} blob {r[1]} px (was {look_area} px at the hover; over {IN_HAND_RATIO:.1f}x = in the hand), fingers {posn:.0f}")
+        d_spot = math.hypot(r[0][0] - cx, r[0][1] - cy)
+        d_hand = math.hypot(r[0][0] - (cx + SHIFT_MM), r[0][1] - cy)
+        on_table, in_hand = d_spot < 60, d_hand < 60
+        await say(f"   after the shift: {colour} seen {d_spot:.0f} mm from the spot, {d_hand:.0f} mm from the gripper, fingers {posn:.0f}")
+    else:
+        await say(f"   after the shift: no {colour} seen (fingers {posn:.0f})")
     if on_table or not (HELD_MIN < posn < HELD_MAX):
         await say(f"   not picked: {'the cube is still on the table' if on_table else 'the fingers are not holding'}")
-        await plan_to(rig, cx, cy, CUBE_STAGES[-1], "back down before opening")   # never drop it from the hover
+        await plan_to(rig, cx, cy, CUBE_ABOVE, "back over the spot")
+        await plan_to(rig, cx, cy, CUBE_STAGES[-1], "down before opening")   # never drop it from the hover
         await step("gripper open", rig.gripper.open())
         return False
-    await say(f"   picked: fingers {posn:.0f}, spot clear or the cube is in the hand")
+    await say(f"   picked: fingers {posn:.0f}, the cube moved with the gripper" if in_hand else f"   picked: fingers {posn:.0f}, spot clear")
     try:
         jpeg, _ = await grab(rig.cam, want_depth=False)
         import os; d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "practice"); os.makedirs(d, exist_ok=True)
