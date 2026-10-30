@@ -251,7 +251,8 @@ twice, a second apart. If he moved, it refuses." (move Skully, right cheek) "Ref
 the cube." (put Skully down) (right cheek) "Still, in reach: it comes in level and lets go. Bon appetit, Skully."
 
 2:00 "Every command is an episode: the gesture, what it saw, the three checks, the outcome, how long. On disk
-at once; MongoDB Atlas when the network lets it through" (point at the screen: synced or queued, honestly).
+at once, then MongoDB: 98 documents so far, Thursday's runs backfilled with their real timestamps" (point at the
+MongoDB panel on the screen; it says local MongoDB, because Atlas did not resolve from this network, and say so if asked).
 "Modular: the face reader writes events to a file; the arm loop reads events. Swap the face reader for the
 EMG board (hold it up) and nothing on the arm side changes. That is the next step: the same four commands
 from the muscle signal, for a face that barely moves."

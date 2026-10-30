@@ -29,8 +29,10 @@ stock arm; the episode log is the audit trail and the training data for safer, l
 UFactory xArm 6 with a two-finger gripper and Intel RealSense D435 on Viam (viam-server, motion planner with
 collision walls, saved poses, Python SDK). MediaPipe face blendshapes on the MacBook camera plus a 20-second
 personal logistic-regression classifier (numpy). OpenCV colour targets for the cube and the blue tape on the
-skull, depth map plus Viam frame transforms for 3D. MongoDB (pymongo) for episodes, Atlas when reachable, JSONL
-mirror always; a stdlib HTTP dashboard. Disclosure: the Cerelog EMG driver (silent-speech-cerelog) predates the
+skull, depth map plus Viam frame transforms for 3D. MongoDB 8.0 (pymongo) as the robot's episodic memory: one
+document per command, 98 episodes already (Friday's live runs plus Thursday's picks, follower runs and handovers
+backfilled with their original timestamps); a local mongod at the table because the Atlas clusters did not
+resolve from the venue network, with a JSONL mirror written first so nothing is lost; a stdlib HTTP dashboard. Disclosure: the Cerelog EMG driver (silent-speech-cerelog) predates the
 event and is the next input, not driving the arm today.
 
 ### The controls (final)

@@ -134,6 +134,7 @@ def mongo_status():
 
 
 def stats():
+    mongo()            # so the screen reports the connection, not just the file (throttled to one try per 20 s)
     rows = load()
     by = {}
     for r in rows:
