@@ -212,6 +212,7 @@ async def pick_cube_once(rig, colour, attempt):
         await plan_to(rig, cx, cy, CUBE_ABOVE, "back up")
         return False
     await plan_to(rig, cx, cy, CUBE_ABOVE, "lift")
+    rig.last_grasp = (cx, cy)
     await say(f"{colour} cube confirmed in the gripper; to greet, to find your hand")
     await rig.greet.set_position(2); await asyncio.sleep(5)
     return True
