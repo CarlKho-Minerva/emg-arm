@@ -169,7 +169,7 @@ async def follow_step(rig, state):
     ex, ey = sm[0] - 0.5, sm[1] - 0.5
     if abs(ex) < DEADBAND and abs(ey) < DEADBAND:
         return
-    dx = max(-STEP_CAP, min(STEP_CAP, -GAIN * ex)); dy = max(-STEP_CAP, min(STEP_CAP, GAIN * ey))
+    dx = FOLLOW_SIGN * max(-STEP_CAP, min(STEP_CAP, -GAIN * ex)); dy = FOLLOW_SIGN * max(-STEP_CAP, min(STEP_CAP, GAIN * ey))
     state["adx"] = state.get("adx", 0.0) + 0.7 * (dx - state.get("adx", 0.0))
     state["ady"] = state.get("ady", 0.0) + 0.7 * (dy - state.get("ady", 0.0))
     if rig.live:
@@ -178,6 +178,8 @@ async def follow_step(rig, state):
         asyncio.ensure_future(rig.arm.move_to_joint_positions(JointPositions(values=j))).add_done_callback(_quiet)
 
 
+NATURAL_EXTEND = False    # Carl, 30 Oct 15:27: use the saved pose, not the depth push
+FOLLOW_SIGN = -1.0        # the new greet (elbow at -190) turns the wrist camera round relative to Thursday's pose: both axes read backwards
 EXTEND_SHORT_MM = 80.0    # stop this far short of the tape (the cube's centre sits ~60 mm ahead of the steered point)
 EXTEND_MIN, EXTEND_MAX = 60.0, 350.0
 
@@ -217,7 +219,7 @@ async def extend_and_release(rig, fstate=None):
     """Extend toward the tape (or to the saved "extend" pose), open the gripper, back to greet. Returns (ok, reason)."""
     if not rig.live:
         return True, "dry: would extend and open"
-    moved = await extend_toward_tape(rig, fstate or {})
+    moved = await extend_toward_tape(rig, fstate or {}) if NATURAL_EXTEND else None
     if moved is not None:
         await asyncio.sleep(0.8)
         await rig.gripper.open(); await say("released")
