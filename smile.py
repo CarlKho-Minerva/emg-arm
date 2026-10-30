@@ -25,8 +25,8 @@ MODEL = os.path.expanduser("~/.cache/face_landmarker.task")
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/"
              "float16/1/face_landmarker.task")
 LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "face.log")
-UP, DOWN = 0.35, 0.20      # a side counts as pulled above UP, released below DOWN
-SIDE_GAP = 0.15            # one side must beat the other by this to be one-sided; closer = both
+UP, DOWN = 0.18, 0.10      # a side counts as pulled above UP, released below DOWN (Carl's cheek pull reads 0.20, rest 0.08)
+SIDE_GAP = 0.10            # one side must beat the other by this to be one-sided; closer = both
 GROUP_S = 0.8              # events within this are one group; quiet this long ends the group
 MIN_HOLD_S = 0.08          # a corner must stay up this long (one blink of noise is not a smile)
 
@@ -51,7 +51,7 @@ def smile_scores(result):
     d = {b.category_name: b.score for b in result.face_blendshapes[0]}
     left = max(d.get(n.format("Left"), 0.0) for n in SIDE_SHAPES)
     right = max(d.get(n.format("Right"), 0.0) for n in SIDE_SHAPES)
-    return left, right
+    return right, left      # mirrored frame: the model's "Left" is Carl's right (checked on his face, 29 Oct 19:50)
 
 
 def write_group(group):
