@@ -285,6 +285,11 @@ async def extend_and_release(rig, fstate=None):
 async def handle(rig, g, mode, following, fstate, steering, live, cube, face_feed):
     """One face event. Returns (mode, following, fstate, steering). Raises on an arm error; the caller logs it and goes on."""
 
+    if g == "F":                                   # test switch, not a face event: toggles following (echo "$(date +%s) F" >> data/face.log)
+        following = not following; fstate = {}
+        log(g, "following Skully's tape (test)" if following else "following stopped (test)")
+        await say("following ON" if following else "following OFF")
+        return mode, following, fstate, steering
     if g == "BBB":
         ep = Episode.start("home", g, mode=mode)
         log(g, "home, gripper open")
