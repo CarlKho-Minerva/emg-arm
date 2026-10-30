@@ -279,6 +279,102 @@ async def extend_and_release(rig, fstate=None):
     return True, "extended and released"
 
 
+async def handle(rig, g, mode, following, fstate, steering, live, cube, face_feed):
+    """One face event. Returns (mode, following, fstate, steering). Raises on an arm error; the caller logs it and goes on."""
+
+    if g == "BBB":
+        ep = Episode.start("home", g, mode=mode)
+        log(g, "home, gripper open")
+        if live:
+            await rig.gripper.open(); await rig.home.set_position(2)
+        mode = "serve"; set_mode(mode); following = False
+        ep.end(True, "home"); await say("home; layer SERVE")
+    elif g == "BB":
+        mode = "steer" if mode == "serve" else "serve"; set_mode(mode); following = False
+        log(g, f"layer {mode.upper()}")
+        Episode.start("switch", g, mode=mode).end(True, f"layer {mode}")
+        await say(f"layer {mode.upper()}")
+    elif mode == "serve":
+        if g == "L":
+            following = False
+            ep = Episode.start("fetch", g, cube=cube, mode=mode)
+            ok = await pick(rig, cube)
+            log(g, "fetch: picked and proved" if ok else "fetch: missed")
+            ep.end(ok, "picked and proved" if ok else "missed", grasp=rig.last_grasp)
+            if ok and SKULLY_MODE == "extend":
+                following = True; fstate = {}
+                log("-", "following Skully's tape; a smile extends and lets go")
+                await say("fetched; following Skully. Smile when he is ready.")
+            else:
+                await say("fetched; at greet" if ok else "could not fetch")
+        elif g in ("R", "B") and SKULLY_MODE == "extend":
+            ep = Episode.start("feed_skully", g, mode=mode, how="extend")
+            if not await holding(rig):
+                if g == "B":
+                    log(g, "let go (nothing held)"); ep.end(True, "opened, nothing held")
+                    if live:
+                        await rig.gripper.open()
+                    return mode, following, fstate, steering
+                log(g, "feed Skully refused: nothing in the gripper (left cheek first)")
+                ep.end(False, "nothing in the gripper")
+                await say("nothing in the gripper; left cheek first")
+                return mode, following, fstate, steering
+            following = False
+            ok, why = await extend_and_release(rig, fstate)
+            log(g, f"feed Skully: {why}")
+            ep.end(ok, why)
+        elif g == "R":
+            ep = Episode.start("feed_skully", g, mode=mode)
+            if not await holding(rig):
+                log(g, "feed Skully refused: nothing in the gripper (left cheek first)")
+                ep.end(False, "nothing in the gripper")
+                await say("nothing in the gripper to feed him with; left cheek first")
+                return mode, following, fstate, steering
+            if SKULLY_MODE == "approach":
+                fed = await feed_held(rig)
+                why = "cube brought to the mouth; smile let go" if fed else "Skully not seen still; cube kept"
+                log(g, f"feed Skully (held): {why}")
+                ep.end(fed, why, mode_skully="held")
+            else:
+                ok, why = await feed_skully(rig, say, episode=ep)
+                log(g, f"feed Skully: {why}")
+                ep.end(ok, why)
+        elif g == "M":
+            ep = Episode.start("feed_face", g, mode=mode)
+            if not face_feed:
+                log(g, "feed me: off (start with --face-feed to allow it)")
+                ep.end(False, "disabled"); continue
+            log(g, "feed me")
+            await feed(rig, put_back=rig.last_grasp)
+            ep.end(None, "ran; outcome not measured")
+        elif g == "B":
+            ep = Episode.start("let_go", g, mode=mode)
+            log(g, "let go")
+            if live:
+                await rig.gripper.open()
+            ep.end(True, "opened")
+        else:
+            log(g, "ignored"); await say(f"{g}: nothing bound to that in SERVE")
+    else:   # steer
+        if g in ("L", "R"):
+            if not live:
+                log(g, f"steer {'left' if g == 'L' else 'right'} (dry)")
+            # live: the pan already happened while the cheek was held; the event itself is not a jump
+        elif g == "B":
+            ep = Episode.start("grip", g, mode=mode)
+            if live:
+                if await holding(rig):
+                    await rig.gripper.open(); log(g, "let go"); ep.end(True, "opened")
+                else:
+                    await rig.gripper.grab(); log(g, "grab"); ep.end(True, "grabbed")
+            else:
+                log(g, "grab/let go (dry)"); ep.end(True, "dry")
+            await say("gripper toggled")
+        else:
+            log(g, "ignored"); await say(f"{g}: nothing bound to that in STEER")
+    return mode, following, fstate, steering
+
+
 async def main(live, cube, face_feed):
     async with await connect() as machine:
         rig = await Rig(machine, live).setup()
@@ -319,96 +415,15 @@ async def main(live, cube, face_feed):
             since = groups[-1][0]
             for _, g in groups:
                 await say(f"heard {g} in {mode.upper()}")
-                if g == "BBB":
-                    ep = Episode.start("home", g, mode=mode)
-                    log(g, "home, gripper open")
-                    if live:
-                        await rig.gripper.open(); await rig.home.set_position(2)
-                    mode = "serve"; set_mode(mode); following = False
-                    ep.end(True, "home"); await say("home; layer SERVE")
-                elif g == "BB":
-                    mode = "steer" if mode == "serve" else "serve"; set_mode(mode); following = False
-                    log(g, f"layer {mode.upper()}")
-                    Episode.start("switch", g, mode=mode).end(True, f"layer {mode}")
-                    await say(f"layer {mode.upper()}")
-                elif mode == "serve":
-                    if g == "L":
-                        following = False
-                        ep = Episode.start("fetch", g, cube=cube, mode=mode)
-                        ok = await pick(rig, cube)
-                        log(g, "fetch: picked and proved" if ok else "fetch: missed")
-                        ep.end(ok, "picked and proved" if ok else "missed", grasp=rig.last_grasp)
-                        if ok and SKULLY_MODE == "extend":
-                            following = True; fstate = {}
-                            log("-", "following Skully's tape; a smile extends and lets go")
-                            await say("fetched; following Skully. Smile when he is ready.")
-                        else:
-                            await say("fetched; at greet" if ok else "could not fetch")
-                    elif g in ("R", "B") and SKULLY_MODE == "extend":
-                        ep = Episode.start("feed_skully", g, mode=mode, how="extend")
-                        if not await holding(rig):
-                            if g == "B":
-                                log(g, "let go (nothing held)"); ep.end(True, "opened, nothing held")
-                                if live:
-                                    await rig.gripper.open()
-                                continue
-                            log(g, "feed Skully refused: nothing in the gripper (left cheek first)")
-                            ep.end(False, "nothing in the gripper")
-                            await say("nothing in the gripper; left cheek first")
-                            continue
-                        following = False
-                        ok, why = await extend_and_release(rig, fstate)
-                        log(g, f"feed Skully: {why}")
-                        ep.end(ok, why)
-                    elif g == "R":
-                        ep = Episode.start("feed_skully", g, mode=mode)
-                        if not await holding(rig):
-                            log(g, "feed Skully refused: nothing in the gripper (left cheek first)")
-                            ep.end(False, "nothing in the gripper")
-                            await say("nothing in the gripper to feed him with; left cheek first")
-                            continue
-                        if SKULLY_MODE == "approach":
-                            fed = await feed_held(rig)
-                            why = "cube brought to the mouth; smile let go" if fed else "Skully not seen still; cube kept"
-                            log(g, f"feed Skully (held): {why}")
-                            ep.end(fed, why, mode_skully="held")
-                        else:
-                            ok, why = await feed_skully(rig, say, episode=ep)
-                            log(g, f"feed Skully: {why}")
-                            ep.end(ok, why)
-                    elif g == "M":
-                        ep = Episode.start("feed_face", g, mode=mode)
-                        if not face_feed:
-                            log(g, "feed me: off (start with --face-feed to allow it)")
-                            ep.end(False, "disabled"); continue
-                        log(g, "feed me")
-                        await feed(rig, put_back=rig.last_grasp)
-                        ep.end(None, "ran; outcome not measured")
-                    elif g == "B":
-                        ep = Episode.start("let_go", g, mode=mode)
-                        log(g, "let go")
-                        if live:
-                            await rig.gripper.open()
-                        ep.end(True, "opened")
-                    else:
-                        log(g, "ignored"); await say(f"{g}: nothing bound to that in SERVE")
-                else:   # steer
-                    if g in ("L", "R"):
-                        if not live:
-                            log(g, f"steer {'left' if g == 'L' else 'right'} (dry)")
-                        # live: the pan already happened while the cheek was held; the event itself is not a jump
-                    elif g == "B":
-                        ep = Episode.start("grip", g, mode=mode)
-                        if live:
-                            if await holding(rig):
-                                await rig.gripper.open(); log(g, "let go"); ep.end(True, "opened")
-                            else:
-                                await rig.gripper.grab(); log(g, "grab"); ep.end(True, "grabbed")
-                        else:
-                            log(g, "grab/let go (dry)"); ep.end(True, "dry")
-                        await say("gripper toggled")
-                    else:
-                        log(g, "ignored"); await say(f"{g}: nothing bound to that in STEER")
+                try:
+                    mode, following, fstate, steering = await handle(rig, g, mode, following, fstate, steering, live, cube, face_feed)
+                except Exception as e:
+                    msg = str(e)
+                    short = "EMERGENCY STOP is pushed in: twist the red button out, then command again" if "Emergency Stop" in msg else f"arm refused: {msg[:100]}"
+                    log(g, short); await say(short)
+                    Episode.start("error", g, mode=mode).end(False, short)
+                    following = False
+            # events heard while the arm was busy
             # events heard while the arm was busy: a layer switch or a stop is honoured now, the rest is logged, not lost silently
             late = [g2 for _, g2 in new_groups(since)]
             since = time.time()
