@@ -135,3 +135,23 @@ Atlas side were built here. What has not been shown yet is on the card on the ta
 5. What breaks? The board has never been linked on a Mac with real hardware; an unplugged
    channel makes every channel noisy; the arm's motor hum is magnetic, so Carl stands two
    metres away; if the board is not live, a keyboard key stands in and that is said aloud.
+
+## Friday morning, first hour (written Thu 29 Oct 20:05)
+
+Decided Thursday night: the demo is face-controlled. Two pads on the cheeks (left and right smile muscles),
+reference on the bone behind the left ear, bias on the left collarbone.
+
+1. 9:00 Pads on, laptop on battery. In `silent-speech-cerelog`: `.venv/bin/python -m ssc live --port
+   /dev/cu.usbserial-110 --channels 1 2`. Five seconds still for the rest level. Then: half-smile left,
+   half-smile right, clench. Each should print as its own event with channel 1 or 2 clearly larger (left,
+   right) or both (clench). If the three are not separable on screen in ten minutes, the demo is the palm
+   handover (`pick.py --live --cube green`), already verified, and the face is one sentence.
+2. 9:30 Arm side (main thread): `clench.py bridge` copies events to `data/clench.log`; a new `face_drive.py`
+   maps left/right to the waist, long clench to switch to the elbow, short clench to grab or release, with
+   the camera doing the fine centring over the cube and the hand check. Thirty minutes.
+3. 10:30 Three full runs with hands behind the back. Count them. Rehearse the 60-second script over a run.
+4. 12:00 Decide: face demo or palm demo. Then lunch, then the Atlas log on the screen beside the arm.
+
+What is verified and does not need touching: the pick (cube-shaped blob, servo, staged descent, shift test),
+the follower on the box, the palm release. The camera-to-gripper offset is in `data/cam_offset.json`.
+Robots-off at 21:00 Thursday; the box's coach and recordings were pulled to the Mac before that.
