@@ -179,7 +179,22 @@ async def follow_step(rig, state):
 
 
 NATURAL_EXTEND = False    # the depth push is off (Carl, 30 Oct 15:27)
-FORWARD_MM = 150.0        # on a smile: push the gripper this far straight along where it points (at Skully, after following), then open
+FORWARD_MM = 150.0        # fallback: push the gripper this far straight along where it points
+EXTEND_DELTA = [0.0, 0.0, +4.07, 0.0, -8.83, 0.0]   # Carl's extend minus his greet (30 Oct 15:30): elbow +4.1, wrist +(-8.8). Applied from wherever the follow left the arm.
+
+
+async def extend_by_delta(rig):
+    """The feed as Carl measured it: joints 2 and 4 move by EXTEND_DELTA from the current pose, so the pan toward Skully is kept."""
+    from viam.proto.component.arm import JointPositions
+    try:
+        j = list((await rig.arm.get_joint_positions()).values)
+        j2 = [a + d for a, d in zip(j, EXTEND_DELTA)]
+        await say(f"feeding: elbow {EXTEND_DELTA[2]:+.1f}, wrist {EXTEND_DELTA[4]:+.1f} deg from here")
+        await asyncio.wait_for(rig.arm.move_to_joint_positions(JointPositions(values=j2)), 10)
+        return True
+    except Exception as e:
+        await say(f"joint feed refused ({str(e)[:60]})")
+        return False
 
 
 async def push_forward(rig):
@@ -236,6 +251,8 @@ async def extend_and_release(rig, fstate=None):
     if not rig.live:
         return True, "dry: would extend and open"
     moved = await extend_toward_tape(rig, fstate or {}) if NATURAL_EXTEND else None
+    if moved is None and await extend_by_delta(rig):
+        moved = 1.0
     if moved is None and await push_forward(rig):
         moved = FORWARD_MM
     if moved is not None:
@@ -243,7 +260,7 @@ async def extend_and_release(rig, fstate=None):
         await rig.gripper.open(); await say("released")
         await asyncio.sleep(1.5)
         await rig.greet.set_position(2)
-        return True, f"extended {moved:.0f} mm toward the tape and released"
+        return True, ("fed by the measured joint move and released" if moved == 1.0 else f"extended {moved:.0f} mm and released")
     try:
         await rig.machine.refresh()
         names = [r.name for r in rig.machine.resource_names]
