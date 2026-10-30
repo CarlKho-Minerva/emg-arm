@@ -38,8 +38,9 @@ REACH = 800.0         # mm, furthest the gripper may be from the base
 MIN_Z = 150.0         # mm above the table
 TAKE_S = 5.0          # seconds the gripper stays open for Carl to take it
 REPLAN_MM = 50.0      # re-plan when the hand has moved more than this
-RELEASE_MM = 120.0    # hand this close to the gripper...
+RELEASE_SIZE = 0.28   # wrist-to-knuckle as a fraction of the picture width: the hand is at the gripper
 RELEASE_S = 1.0       # ...for this long: let go
+SAFE_X = 850.0        # mm: direct moves never go further forward than this (the laptop wall is at 950)
 FOLLOW_MAX_S = 60.0   # give up following after this
 
 
@@ -87,44 +88,58 @@ async def place_bottle(rig):
 
 
 async def handover(rig):
-    """Follow Carl's left hand with the bottle: re-plan whenever the hand moves more than REPLAN_MM,
-    and let go only when the hand has stayed within RELEASE_MM of the gripper for RELEASE_S."""
-    machine, cam, intr, det, pose, motion, gripper, greet, live = (rig.machine, rig.cam, rig.intr, rig.det, rig.pose,
-                                                                   rig.motion, rig.gripper, rig.greet, rig.live)
-    await say("following your left hand; it lets go when your hand stays at the gripper for a second")
+    """Follow Carl's left hand with the bottle and let go when his hand comes to the gripper.
+
+    Following uses the arm's own direct move (no planner: the planner took 34 s on one pose), kept
+    inside a box in front of the arm (x up to SAFE_X, z at least MIN_Z). Release: the hand looks big
+    in the picture (closer than the wrist camera can measure) for RELEASE_S."""
+    machine, cam, intr, det, pose, arm, gripper, greet, live = (rig.machine, rig.cam, rig.intr, rig.det, rig.pose,
+                                                                rig.arm, rig.gripper, rig.greet, rig.live)
+    await say("following your left hand; bring your hand to the bottle and hold it there a second to take it")
     target = None
-    close_since = None
+    big_since = None
     t_start = time.time()
     while time.time() - t_start < FOLLOW_MAX_S:
-        r = await hand_in_world(machine, cam, det, intr)
-        if r is None:
-            await asyncio.sleep(0.05); continue
-        _, mm, _, (hx, hy, hz) = r
-        gp = (await motion.get_pose("gripper", "world")).pose
-        gap = math.dist((hx, hy, hz), (gp.x, gp.y, gp.z))
-        if gap < RELEASE_MM:
-            close_since = close_since or time.time()
-            if time.time() - close_since >= RELEASE_S:
-                await say(f"your hand has been at the gripper ({gap:.0f} mm) for {RELEASE_S:.0f} s: letting go")
+        jpeg, depth = await grab(cam, want_depth=True)
+        import cv2, numpy as np, mediapipe as mp
+        bgr = cv2.imdecode(np.frombuffer(jpeg, "uint8"), cv2.IMREAD_COLOR)
+        res = det.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)))
+        if not res.hand_landmarks:
+            big_since = None
+            await asyncio.sleep(0.02); continue
+        pts = max(res.hand_landmarks, key=lambda p: math.hypot(p[9].x - p[0].x, p[9].y - p[0].y))   # the nearest hand
+        size = math.hypot(pts[9].x - pts[0].x, pts[9].y - pts[0].y)
+        if size >= RELEASE_SIZE:
+            big_since = big_since or time.time()
+            if time.time() - big_since >= RELEASE_S:
+                await say(f"your hand is at the gripper (size {size:.2f} of the picture) for {RELEASE_S:.0f} s: letting go")
                 if live:
                     await gripper.open()
                 await asyncio.sleep(2)
                 break
-        else:
-            close_since = None
+            continue
+        big_since = None
+        palm = [pts[i] for i in (0, 5, 9, 13, 17)]
+        c = (sum(p.x for p in palm) / 5, sum(p.y for p in palm) / 5)
+        from follow import depth_at
+        mm = depth_at(depth, *c)
+        if not mm or mm < 280:
+            continue                                  # too close for the depth camera: wait for the size rule
+        u, v = c[0] * intr.width_px, c[1] * intr.height_px
+        x = (u - intr.center_x_px) * mm / intr.focal_x_px; y = (v - intr.center_y_px) * mm / intr.focal_y_px
+        w = (await machine.transform_pose(PoseInFrame(reference_frame="cam", pose=Pose(x=x, y=y, z=mm, o_z=1)), "world")).pose
+        hx, hy, hz = w.x, w.y, w.z
         tx, ty, tz = target_for(hx, hy, hz)
+        tx = min(tx, SAFE_X); tz = max(tz, MIN_Z)
         if target is None or math.dist(target, (tx, ty, tz)) > REPLAN_MM:
-            await say(f"hand at x={hx:.0f} y={hy:.0f} z={hz:.0f} ({mm} mm from the camera); going to x={tx:.0f} y={ty:.0f} z={tz:.0f}")
+            await say(f"hand at x={hx:.0f} y={hy:.0f} z={hz:.0f} ({mm} mm away); gripper to x={tx:.0f} y={ty:.0f} z={tz:.0f}")
             target = (tx, ty, tz)
             if live:
                 flat = math.hypot(hx, hy)
-                facing = Pose(x=tx, y=ty, z=tz, o_x=hx / flat, o_y=hy / flat, o_z=0, theta=0)
                 try:
-                    ok = await motion.move(component_name="gripper", destination=PoseInFrame(reference_frame="world", pose=facing))
+                    await arm.move_to_position(Pose(x=tx, y=ty, z=tz, o_x=hx / flat, o_y=hy / flat, o_z=0, theta=0))
                 except Exception as e:
-                    ok = False; await say(f"planner: {str(e)[:80]}")
-                if not ok:
-                    await say("planner found no path to that; holding here")
+                    await say(f"direct move refused: {str(e)[:80]}")
     else:
         await say(f"no handover in {FOLLOW_MAX_S:.0f} s; keeping the bottle")
     if live:
