@@ -5,7 +5,16 @@ Viam x MongoDB Robot Hackathon, SF, 29 to 30 Oct 2026. Solo entry by Carl Kho (S
 A UFactory xArm 6 that finds Carl by camera, follows his arm, and (next) takes orders from his
 face muscles through a Cerelog EMG board. No hands, no voice.
 
-## Status, end of day 1 (29 Oct)
+## Status, end of day 1 (29 Oct, 17:47)
+
+**The demo works on the real arm:** `.venv/bin/python pick.py --live --cube red` goes to greet, looks at
+the table from home, finds the red cube by colour, hovers over it, comes down in steps closing at each
+until the fingers confirm a hold, lifts, goes to greet, follows Carl's left hand, and lets go once his
+hand has been still for 2 s at the 20 cm standoff. Bottles work too (`pick.py --live`, side grasp at
+the label) but need 60 to 72 cm from the base and are finicky; cubes are the demo object.
+Every handover is recorded under `data/handover/`.
+
+## What was measured today
 
 Working, measured on the real arm:
 
