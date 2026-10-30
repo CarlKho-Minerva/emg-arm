@@ -2,6 +2,7 @@
 
     .venv/bin/python pick.py            # dry run: finds the bottle, prints the grasp, moves nothing
     .venv/bin/python pick.py --live     # the real thing; a hand on the red button
+    .venv/bin/python pick.py --live --cube red    # a coloured cube instead (straight-down grasp)
 
 Steps:
   1. home pose (looking down at the table), gripper open. Find the nearest standing bottle within reach.
@@ -31,6 +32,10 @@ MIN_PRE_DIST = 530.0   # mm from the base: the nearest a level pre-grasp pose ca
 IN_MM = 35.0           # gripper frame this far short of the axis when closing (fingers reach past it)
 LIFT_MM = 100.0
 MAX_TRIES = 4
+CUBE_REACH = 750.0     # mm from the base for a straight-down grasp
+CUBE_ABOVE = 160.0     # mm: hover height of the steered point over the cube
+CUBE_STAGES = (90.0, 70.0, 52.0)   # steered-point heights to close at, in order; the fingertips hang some
+                                   # unknown distance below the steered point, so go down in steps and stop at the first hold
 HELD_POS = 60.0        # finger position above this after closing = something is between the fingers
 SOFT_SPEED = 800.0     # gripper closing speed while grasping (driver default 2000); gentler on the bottle
 
@@ -126,8 +131,80 @@ async def pick_once(rig, attempt):
     return True
 
 
-async def pick(rig):
-    """Try until the fingers confirm a bottle, up to MAX_TRIES."""
+async def pick_cube_once(rig, colour, attempt):
+    """Top-down grasp of a coloured cube: above it, then down in stages, closing at each until the fingers hold."""
+    from cube import CUBE_MM, find_cubes
+    if attempt == 1:
+        await say("to greet first; gripper open")
+        if rig.live:
+            await rig.greet.set_position(2); await asyncio.sleep(4)
+            await rig.gripper.open(); await asyncio.sleep(1)
+    await say(f"attempt {attempt}: to home (the view of the table)")
+    if rig.live:
+        await rig.home.set_position(2); await asyncio.sleep(5)
+        await rig.gripper.open()
+    found = await find_cubes(rig.machine, rig.cam, rig.intr, [colour])
+    if colour not in found:
+        await say(f"no {colour} cube seen from home"); return False
+    (cx, cy, cz), area, box = found[colour]
+    flat = math.hypot(cx, cy)
+    if flat > CUBE_REACH:
+        await say(f"{colour} cube seen but {flat:.0f} mm from the base, over the {CUBE_REACH:.0f} limit: slide the cubes toward the arm")
+        return False
+    await say(f"{colour} cube at x={cx:.0f} y={cy:.0f}, {flat:.0f} mm from the base (top read z={cz:.0f}; using the known height)")
+    if not rig.live:
+        await say(f"would go above it at z={CUBE_ABOVE:.0f}, then down through {CUBE_STAGES}, closing at each until held")
+        return True
+    if not await plan_to(rig, cx, cy, CUBE_ABOVE, "above the cube"):
+        return False
+    try:
+        await rig.gripper.do_command({"set_gripper_speed": SOFT_SPEED})
+    except Exception:
+        pass
+    held = False
+    for z in CUBE_STAGES:
+        if not await plan_to(rig, cx, cy, z, f"down to z={z:.0f}"):
+            break
+        await rig.gripper.grab()
+        try:
+            posn = (await rig.gripper.do_command({"get": True})).get("pos", -1)
+        except Exception:
+            posn = -1
+        await say(f"   closed at z={z:.0f}: finger position {posn:.0f}")
+        if posn > HELD_POS:
+            held = True
+            break
+        await rig.gripper.open(); await asyncio.sleep(0.5)
+    try:
+        await rig.gripper.do_command({"set_gripper_speed": 2000.0})
+    except Exception:
+        pass
+    if not held:
+        await say("fingers closed on nothing at every stage; opening"); await rig.gripper.open()
+        await plan_to(rig, cx, cy, CUBE_ABOVE, "back up")
+        return False
+    await plan_to(rig, cx, cy, CUBE_ABOVE, "lift")
+    await say(f"{colour} cube confirmed in the gripper; to greet, to find your hand")
+    await rig.greet.set_position(2); await asyncio.sleep(5)
+    return True
+
+
+async def pick(rig, cube=None):
+    """Try until the fingers confirm the object, up to MAX_TRIES."""
+    for attempt in range(1, MAX_TRIES + 1):
+        ok = await (pick_cube_once(rig, cube, attempt) if cube else pick_once(rig, attempt))
+        if ok:
+            return True
+        if not rig.live:
+            return False
+        await say("retrying in 3 s")
+        await asyncio.sleep(3)
+    await say(f"nothing held after {MAX_TRIES} attempts")
+    return False
+
+
+async def _unused_pick(rig):
+    """(the bottle-only loop, kept for reference)"""
     for attempt in range(1, MAX_TRIES + 1):
         ok = await pick_once(rig, attempt)
         if ok:
@@ -140,10 +217,10 @@ async def pick(rig):
     return False
 
 
-async def main(live):
+async def main(live, cube=None):
     async with await connect() as machine:
         rig = await Rig(machine, live).setup()
-        ok = await pick(rig)
+        ok = await pick(rig, cube)
         if ok or not live:
             await handover(rig)
         else:
@@ -155,4 +232,6 @@ async def main(live):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--live", action="store_true")
-    asyncio.run(main(ap.parse_args().live))
+    ap.add_argument("--cube", choices=["red", "green", "blue", "yellow"], help="pick this coloured cube instead of the bottle")
+    a = ap.parse_args()
+    asyncio.run(main(a.live, a.cube))
