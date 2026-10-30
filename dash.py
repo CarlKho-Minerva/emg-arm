@@ -295,6 +295,10 @@ nav button{all:unset;cursor:pointer;display:flex;align-items:center;justify-cont
 nav button:hover{background:var(--card)}nav button.on{background:var(--fg);color:var(--bg)}
 nav button .dot{width:8px;height:8px;border-radius:50%;background:var(--line)}nav button .dot.ok{background:var(--ok)}nav button .dot.warn{background:var(--warn)}
 nav button.on .dot.ok{background:var(--ok)}
+.focusbtn{margin-top:8px;border:1px solid var(--line)}.focusbtn.on{border-color:var(--ok);color:var(--ok)}
+body.focus .card:not(.heard):not(.checks),body.focus .lead,body.focus .tiles,body.focus .paper,body.focus .cap,body.focus .runbox,body.focus .foot,body.focus h2{opacity:.22;transition:opacity .3s}
+body.focus .pic,body.focus .heard,body.focus .checks{opacity:1}
+body.focus .cc .pic{max-height:56vh}
 .runbox{margin-top:auto;border-top:1px solid var(--line);padding-top:4px}
 .runrow{display:grid;grid-template-columns:10px 1fr auto auto;gap:6px;align-items:center;padding:3px 8px;font-size:13px}
 .rb{all:unset;cursor:pointer;font-size:11.5px;padding:3px 8px;border:1px solid var(--line);border-radius:6px;color:var(--fg)}.rb:hover{background:var(--card)}.rb.all{border-color:var(--ok);color:var(--ok)}
@@ -350,6 +354,7 @@ pre.log{margin:0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color
   <button data-tab="face"><span>Your face</span><span class="dot" id="d_face"></span></button>
   <button data-tab="memory"><span>Episodic memory</span><span class="dot" id="d_memory"></span></button>
   <button data-tab="story"><span>Why</span><span class="dot"></span></button>
+  <button id="focus" class="focusbtn"><span>Focus</span><span class="cap" style="font-size:11px">dim all but the live</span></button>
   <div class="runbox">
     <div class="k" style="margin:10px 8px 6px">Run</div>
     <div class="runrow"><span id="p_smile_dot" class="dot"></span><span>Face reader</span><button class="rb" data-run="smile" data-act="start">Start</button><button class="rb" data-run="smile" data-act="stop">Stop</button></div>
@@ -479,7 +484,9 @@ document.getElementById('controls').innerHTML=CONTROLS.map(c=>c[1]==null?`<tr><t
 document.querySelectorAll('nav button[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button[data-tab]').forEach(x=>x.classList.toggle('on',x===b));document.querySelectorAll('main section').forEach(s=>s.classList.toggle('on',s.id===b.dataset.tab));try{localStorage.setItem('tab',b.dataset.tab)}catch(e){}});
 try{const t=localStorage.getItem('tab');if(t)document.querySelector(`nav button[data-tab="${t}"]`)?.click();}catch(e){}
 document.querySelectorAll('.rb').forEach(b=>b.onclick=async()=>{b.disabled=true;try{const r=await (await fetch(`/run?what=${b.dataset.run}&action=${b.dataset.act}`,{method:'POST'})).json();$('run_msg').textContent=Object.entries(r).map(([k,v])=>`${k}: ${v}`).join(' · ');}catch(e){$('run_msg').textContent='no answer from the screen server';}b.disabled=false;});
-document.addEventListener('keydown',e=>{const m={'0':'all','1':'robot','2':'face','3':'memory','4':'story'};if(m[e.key])document.querySelector(`nav button[data-tab="${m[e.key]}"]`).click();});
+$('focus').onclick=()=>{document.body.classList.toggle('focus');$('focus').classList.toggle('on');try{localStorage.setItem('focus',document.body.classList.contains('focus')?'1':'')}catch(e){}};
+try{if(localStorage.getItem('focus'))$('focus').click();}catch(e){}
+document.addEventListener('keydown',e=>{if(e.key==='f')$('focus').click();const m={'0':'all','1':'robot','2':'face','3':'memory','4':'story'};if(m[e.key])document.querySelector(`nav button[data-tab="${m[e.key]}"]`).click();});
 function bar(name,val,thr){const b=$('b_'+name),t=$('t_'+name),v=$('v_'+name);const have=typeof val==='number';b.style.width=have?(Math.min(val,1)*100)+'%':'0';b.className=(have&&typeof thr==='number'&&val>=thr)?'on':'';t.style.display=typeof thr==='number'?'':'none';if(typeof thr==='number')t.style.left=(Math.min(thr,1)*100)+'%';v.textContent=have?val.toFixed(2):'-';}
 function fmtAge(a){if(a==null)return '?';if(a<60)return a.toFixed(0)+' s';if(a<3600)return (a/60).toFixed(0)+' min';return (a/3600).toFixed(1)+' h';}
 function wordsOf(g){const w={L:'left cheek',R:'right cheek',B:'full smile',M:'mouth open'};return g.split('').map(ch=>w[ch]||ch).join(', ');}
