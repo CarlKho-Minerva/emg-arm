@@ -343,7 +343,7 @@ async def handle(rig, g, mode, following, fstate, steering, live, cube, face_fee
             ep = Episode.start("feed_face", g, mode=mode)
             if not face_feed:
                 log(g, "feed me: off (start with --face-feed to allow it)")
-                ep.end(False, "disabled"); continue
+                ep.end(False, "disabled"); return mode, following, fstate, steering
             log(g, "feed me")
             await feed(rig, put_back=rig.last_grasp)
             ep.end(None, "ran; outcome not measured")
