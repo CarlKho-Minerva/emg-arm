@@ -342,9 +342,10 @@ function timeChart(tl){
   if(!tl.length)return '<p class="cap">no episodes</p>';
   const kinds=[...new Set(tl.map(e=>e.kind))];const W=620,rowH=22,P={l:92,r:10,t:18,b:22};const H=P.t+P.b+rowH*kinds.length;
   const t0=Math.min(...tl.map(e=>e.t)),t1=Math.max(...tl.map(e=>e.t))+60;const x=t=>P.l+(W-P.l-P.r)*((t-t0)/(t1-t0));
-  const step=(t1-t0)>6*3600?3600:1800;const ticks=[];for(let t=Math.ceil(t0/step)*step;t<t1;t+=step)ticks.push(t);
+  const span=t1-t0;const step=Math.max(1800,Math.ceil(span/7/1800)*1800);const ticks=[];for(let t=Math.ceil(t0/step)*step;t<t1;t+=step)ticks.push(t);
+  const lab=t=>span>12*3600?new Date(t*1000).toLocaleString([],{weekday:'short',hour:'2-digit',minute:'2-digit'}):hhmm(t);
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="episodes over time">
-    ${ticks.map(t=>`<line class="ax" x1="${x(t)}" x2="${x(t)}" y1="${P.t}" y2="${H-P.b}"/><text x="${x(t)}" y="${H-7}" text-anchor="middle">${hhmm(t)}</text>`).join('')}
+    ${ticks.map(t=>`<line class="ax" x1="${x(t)}" x2="${x(t)}" y1="${P.t}" y2="${H-P.b}"/><text x="${x(t)}" y="${H-7}" text-anchor="middle">${lab(t)}</text>`).join('')}
     ${kinds.map((k,i)=>`<text x="${P.l-8}" y="${P.t+rowH*i+rowH/2+4}" text-anchor="end" style="fill:var(--fg)">${esc(k)}</text><line class="ax" x1="${P.l}" x2="${W-P.r}" y1="${P.t+rowH*i+rowH/2}" y2="${P.t+rowH*i+rowH/2}"/>`).join('')}
     ${tl.map(e=>{const i=kinds.indexOf(e.kind);const cy=P.t+rowH*i+rowH/2;const cls=e.ok===true?'ok':e.ok===false?'no':'na';const cx=x(e.t);
       const shape=e.ok===true?`<circle class="${cls}" cx="${cx}" cy="${cy}" r="5"/>`:e.ok===false?`<rect class="${cls}" x="${cx-4.5}" y="${cy-4.5}" width="9" height="9" transform="rotate(45 ${cx} ${cy})"/>`:`<circle class="${cls}" cx="${cx}" cy="${cy}" r="4" fill-opacity=".55"/>`;
