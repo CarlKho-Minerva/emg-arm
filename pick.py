@@ -38,7 +38,7 @@ CUBE_ABOVE = 160.0     # mm: hover height of the steered point over the cube
 CUBE_LOOKS = (240.0, 160.0)   # hover heights for the close looks (coarse to fine), before the descent
 CUBE_PASSES = 3        # look-descend passes per attempt before going back to home
 CUBE_MAX_SHIFT = 80.0  # mm: a close look that moves the estimate more than this is a different blob; ignore it
-CUBE_STAGES = (90.0, 70.0, 52.0)   # steered-point heights to close at, in order; the fingertips hang some
+CUBE_STAGES = (80.0, 70.0, 62.0)   # never 52: the fingertips were on the wood there and the gripper refused to close   # steered-point heights to close at, in order; the fingertips hang some
                                    # unknown distance below the steered point, so go down in steps and stop at the first hold
 HELD_POS = 60.0        # (old rule, kept for the bottle path)
 HELD_MIN, HELD_MAX = 120.0, 700.0   # settled finger position for a 48 mm cube: well off both ends of the 0..850 range

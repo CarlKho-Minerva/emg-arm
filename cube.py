@@ -33,6 +33,18 @@ COLOURS = {
 }
 
 
+def cam_offset():
+    """(dx, dy) mm to ADD to a camera estimate to get where the gripper must go. Measured 29 Oct 18:38 by letting
+    the gripper place the cube and the camera look: camera minus gripper = (-25, +14), so add (+25, -14).
+    Stored in data/cam_offset.json by the calibration; (0, 0) if the file is missing."""
+    import json, os
+    f = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "cam_offset.json")
+    if not os.path.exists(f):
+        return 0.0, 0.0
+    ox, oy = json.load(open(f))["camera_minus_gripper_mm"]
+    return -ox, -oy
+
+
 def depth_mm(depth, u, v, w_img, h_img):
     w, h = struct.unpack(">QQ", depth[8:24])
     x, y = int(u / w_img * w), int(v / h_img * h)
@@ -84,7 +96,8 @@ async def pixel_to_plane(machine, intr, u, v, z_plane):
     t = (z_plane - o.z) / dz
     if t <= 0:
         return None
-    return o.x + t * dx, o.y + t * dy, z_plane
+    cx, cy = cam_offset()
+    return o.x + t * dx + cx, o.y + t * dy + cy, z_plane
 
 
 async def find_cube_close(machine, cam, intr, colour):
@@ -117,6 +130,8 @@ async def find_cubes(machine, cam, intr, colours=None):
             if not mm:
                 continue
             top = await to_world(machine, intr, cu, cv_, mm)
+            cxo, cyo = cam_offset()
+            top = (top[0] + cxo, top[1] + cyo, top[2])
             # on the table: z near 0 (the depth frame reads about 4 cm low) and not out in the room (blue chairs, tape)
             if -80 < top[2] < 120 and math.hypot(top[0], top[1]) < 1300:
                 cands.append((math.hypot(top[0], top[1]), top, area, box))
