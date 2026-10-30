@@ -155,3 +155,29 @@ reference on the bone behind the left ear, bias on the left collarbone.
 What is verified and does not need touching: the pick (cube-shaped blob, servo, staged descent, shift test),
 the follower on the box, the palm release. The camera-to-gripper offset is in `data/cam_offset.json`.
 Robots-off at 21:00 Thursday; the box's coach and recordings were pulled to the Mac before that.
+
+## Face controls (decided Thu 29 Oct 20:20)
+
+Three face events from two cheek pads, counted within 0.8 s: L (half-smile left), R (half-smile right),
+B (both sides: full smile or clench). A group is acted on after 0.8 s of quiet; the screen shows the
+count as it is heard (L, LL, B B) before anything moves.
+
+Fetch mode (start state, at greet, looking at Carl):
+| face | action |
+|---|---|
+| L | grab the food: home, find the cube, pick, prove the grip, back to greet |
+| R | feed me: follow the nose, bring the cube to the mouth, hold it there |
+| B | done: let go into a hand if one is under it, else take it back to where it was found |
+| B B | switch to Nudge mode |
+| B B B | home: stop, arm to home, gripper open |
+
+Nudge mode (manual, 30 mm per step):
+| face | action |
+|---|---|
+| L / R | one step left / right along the current axis |
+| B B | next axis: left/right, toward/away, up/down |
+| B | grab if empty, let go if holding |
+| B B B | back to Fetch mode at greet |
+
+The camera keeps: centring over the cube, which hand is Carl's, the sideways lift proof.
+One sentence: "I fed myself with my face: one smile to fetch, one to bring it to my mouth, one to say I'm done."
