@@ -5,14 +5,19 @@ Viam x MongoDB Robot Hackathon, SF, 29 to 30 Oct 2026. Solo entry by Carl Kho (S
 A UFactory xArm 6 that finds Carl by camera, follows his arm, and (next) takes orders from his
 face muscles through a Cerelog EMG board. No hands, no voice.
 
-## Status, end of day 1 (29 Oct, 17:47)
+## Status, end of day 1 (29 Oct, 18:20)
 
-**The demo works on the real arm:** `.venv/bin/python pick.py --live --cube red` goes to greet, looks at
-the table from home, finds the red cube by colour, hovers over it, comes down in steps closing at each
-until the fingers confirm a hold, lifts, goes to greet, follows Carl's left hand, and lets go once his
-hand has been still for 2 s at the 20 cm standoff. Bottles work too (`pick.py --live`, side grasp at
-the label) but need 60 to 72 cm from the base and are finicky; cubes are the demo object.
-Every handover is recorded under `data/handover/`.
+**Correction.** Earlier today this file said the cube pick-and-handover worked. It did not: the "held"
+check read the finger position before the fingers had moved, so an open gripper counted as a hold, 12
+times in a row. Carl, watching, saw nothing picked up. The check is now: fingers settled in the middle
+of their range AND the cube gone from its spot in the camera after the lift. Rows in
+`data/practice.json` before 18:15 are marked untrusted.
+
+What is verified on the real arm: the follower (20 Hz on the box, 7.6 % wrong-hand frames after the
+fixes), the bottle side-grasp (held twice, judged by lift and carry), the planner going above and down
+onto a cube's measured position within a millimetre of the asked point, the coarse-to-fine looks
+moving the estimate 6 to 26 mm. Not yet verified: a cube actually lifted. `practice.py` runs the pick
+on its own and logs each try; `pick.py --live --cube red` is the demo once it does.
 
 ## What was measured today
 
