@@ -208,6 +208,26 @@ def publish_face(frame):
     os.replace(tmp, FACE_JPG)
 
 
+def open_camera(prefer=0):
+    """The first camera that actually gives a frame. On 30 Oct 14:08 index 0 opened but its first read failed and
+    the window quit without a word (the dashboard then said "smile.py stopped 15 h ago"). Tries prefer, then 1, 2, 0;
+    on macOS an index can be the iPhone's Continuity Camera or a camera another app holds."""
+    tried = []
+    for idx in [prefer] + [i for i in (1, 2, 0) if i != prefer]:
+        cap = cv2.VideoCapture(idx)
+        if not cap.isOpened():
+            tried.append(f"{idx}: did not open"); continue
+        for _ in range(20):                       # up to 2 s for the first frame
+            ok, frame = cap.read()
+            if ok and frame is not None:
+                print(f"camera {idx}: {frame.shape[1]}x{frame.shape[0]}", flush=True)
+                return cap
+            time.sleep(0.1)
+        tried.append(f"{idx}: opened, no frame"); cap.release()
+    raise SystemExit("no camera gives a frame (" + "; ".join(tried) + "). macOS: System Settings > Privacy > Camera > Terminal on; "
+                     "close other apps using the camera; unplug the iPhone.")
+
+
 def load_calib():
     import json
     if os.path.exists(CALIB):
@@ -233,9 +253,7 @@ def main(window=True, cam=0):
     published_at = 0.0
     print(f"thresholds: left {up_l:.2f} right {up_r:.2f} release {down:.2f}" + ("" if os.path.exists(CALIB) else " (defaults; run --calibrate)"), flush=True)
     det = detector()
-    cap = cv2.VideoCapture(cam)
-    if not cap.isOpened():
-        raise SystemExit("no camera; macOS may need to grant camera access to the terminal")
+    cap = open_camera(cam)
     up = None            # the event currently being held: "L", "R", "B" or None
     released_at = 0.0
     up_since = 0.0
@@ -244,10 +262,17 @@ def main(window=True, cam=0):
     last_event = 0.0
     t0 = time.time()
     print("Served With a Smile. Smile left, right, or both. Groups print when you stop.", flush=True)
+    bad_reads = 0
     while True:
         ok, frame = cap.read()
         if not ok:
-            break
+            bad_reads += 1
+            if bad_reads % 30 == 1:
+                print(f"camera read failed ({bad_reads}); retrying (another app holding it? Continuity Camera?)", flush=True)
+            if bad_reads > 300:
+                raise SystemExit("camera stopped giving frames for 300 reads; run again, or --cam 1")
+            time.sleep(0.1); continue
+        bad_reads = 0
         frame = cv2.flip(frame, 1)           # mirror, so left means your left
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         res = det.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), int((time.time() - t0) * 1000))
