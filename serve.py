@@ -129,9 +129,18 @@ EXTEND_POSE = "extend"   # saved with: .venv/bin/python savepose.py extend   (jo
 EXTEND_S = 5.0           # seconds to give the go-to before opening
 
 
+def _quiet(task):
+    """A streamed move that the next one cancels raises CANCELLED; retrieve it so asyncio does not print a page per step."""
+    try:
+        task.result()
+    except Exception:
+        pass
+
+
 async def follow_step(rig, state):
     """One step of keeping the tape on Skully's nose centred in the wrist camera: the follower's pan/tilt
-    (waist and elbow), streamed. state holds the smoothed point and the step filter between calls."""
+    (waist and elbow), streamed. state holds the smoothed point and the step filter between calls.
+    Every frame is saved to data/feed/<run>/ so a run can be read frame by frame afterwards."""
     from follow import DEADBAND, GAIN, SMOOTH, STEP_CAP
     from viam.proto.component.arm import JointPositions
     try:
@@ -142,7 +151,14 @@ async def follow_step(rig, state):
     with open(tmp, "wb") as f:
         f.write(jpeg)
     os.replace(tmp, LIVE_JPG)
+    if "rec" not in state:
+        state["rec"] = os.path.join(HERE, "data", "feed", time.strftime("%Y%m%d-%H%M%S") + "-follow")
+        os.makedirs(state["rec"], exist_ok=True)
+        state["n"] = 0
+    state["n"] += 1
     raw = tape_point(jpeg)
+    with open(os.path.join(state["rec"], f"{time.time():.3f}{'' if raw else '-notape'}.jpg"), "wb") as f:
+        f.write(jpeg)
     if raw is None:
         state["seen"] = False
         return
@@ -159,7 +175,7 @@ async def follow_step(rig, state):
     if rig.live:
         j = list((await rig.arm.get_joint_positions()).values)
         j[0] += state["adx"]; j[2] += state["ady"]
-        asyncio.ensure_future(rig.arm.move_to_joint_positions(JointPositions(values=j)))
+        asyncio.ensure_future(rig.arm.move_to_joint_positions(JointPositions(values=j))).add_done_callback(_quiet)
 
 
 async def extend_and_release(rig):
@@ -203,7 +219,7 @@ async def main(live, cube, face_feed):
                     from viam.proto.component.arm import JointPositions
                     j = list((await rig.arm.get_joint_positions()).values)
                     j[0] += STEER_SIGN[held] * STEER_RATE * 0.1
-                    asyncio.ensure_future(rig.arm.move_to_joint_positions(JointPositions(values=j)))
+                    asyncio.ensure_future(rig.arm.move_to_joint_positions(JointPositions(values=j))).add_done_callback(_quiet)
                     if not steering:
                         steering = True; log(held, "steer: panning while held")
                     await asyncio.sleep(0.1)
