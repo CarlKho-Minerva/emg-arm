@@ -46,31 +46,46 @@ def target_for(hx, hy, hz):
     return hx * s, hy * s, max(hz, MIN_Z)
 
 
-async def main(live):
-    det, pose = detector(), pose_detector()
-    async with await connect() as machine:
-        cam = Camera.from_robot(machine, "cam")
-        intr = (await cam.get_properties()).intrinsic_parameters
-        motion = MotionClient.from_robot(machine, "builtin")
-        arm, gripper = arm_of(machine), gripper_of(machine)
-        greet = Switch.from_robot(machine, "greet")
+async def say(msg):
+    print(f"{time.strftime('%H:%M:%S')}  {msg}", flush=True)
 
-        async def say(msg):
-            print(f"{time.strftime('%H:%M:%S')}  {msg}", flush=True)
 
-        # 1. greet, open, wait, close
-        await say("to greet")
-        if live:
-            await greet.set_position(2); await asyncio.sleep(4)
-            await gripper.open()
-        await say(f"gripper open: put the bottle in ({HOLD_S:.0f} s)")
-        await asyncio.sleep(HOLD_S if live else 1)
-        if live:
-            held = await gripper.grab()
-            await say(f"gripper closed, holding something: {held}")
-        else:
-            await say("gripper would close now")
+class Rig:
+    """Everything the steps need, built once per connection."""
+    def __init__(self, machine, live):
+        self.machine, self.live = machine, live
+        self.cam = Camera.from_robot(machine, "cam")
+        self.motion = MotionClient.from_robot(machine, "builtin")
+        self.arm, self.gripper = arm_of(machine), gripper_of(machine)
+        self.greet = Switch.from_robot(machine, "greet")
+        self.det, self.pose = detector(), pose_detector()
+        self.intr = None
 
+    async def setup(self):
+        self.intr = (await self.cam.get_properties()).intrinsic_parameters
+        return self
+
+
+async def place_bottle(rig):
+    """Greet, open, give Carl HOLD_S seconds to put the bottle in, close."""
+    await say("to greet")
+    if rig.live:
+        await rig.greet.set_position(2); await asyncio.sleep(4)
+        await rig.gripper.open()
+    await say(f"gripper open: put the bottle in ({HOLD_S:.0f} s)")
+    await asyncio.sleep(HOLD_S if rig.live else 1)
+    if rig.live:
+        held = await rig.gripper.grab()
+        await say(f"gripper closed, holding something: {held}")
+    else:
+        await say("gripper would close now")
+
+
+async def handover(rig):
+    """Watch for Carl's steady left hand, plan to STANDOFF short of it, open, return to greet."""
+    machine, cam, intr, det, pose, motion, gripper, greet, live = (rig.machine, rig.cam, rig.intr, rig.det, rig.pose,
+                                                                   rig.motion, rig.gripper, rig.greet, rig.live)
+    if True:
         # 2. watch for a steady left hand
         await say("watching for your left hand")
         seen, last, sm = 0, None, None
@@ -143,6 +158,13 @@ async def main(live):
         if live:
             await greet.set_position(2)
         await say("back to greet; done")
+
+
+async def main(live):
+    async with await connect() as machine:
+        rig = await Rig(machine, live).setup()
+        await place_bottle(rig)
+        await handover(rig)
 
 
 if __name__ == "__main__":
