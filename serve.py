@@ -263,10 +263,10 @@ async def extend_and_release(rig, fstate=None):
     if not rig.live:
         return True, "dry: would extend and open"
     moved = await extend_toward_tape(rig, fstate or {}) if NATURAL_EXTEND else None
-    if moved is None and await push_forward(rig):            # 15 cm straight ahead: the measured joint move was too small to see (15:46)
-        moved = FORWARD_MM
-    if moved is None and await extend_by_delta(rig):
+    if moved is None and await extend_by_delta(rig):         # Carl's measured feed; "small is fine" (15:48). From his greet no forward push has a solution.
         moved = 1.0
+    if moved is None and await push_forward(rig):
+        moved = FORWARD_MM
     if moved is not None:
         await asyncio.sleep(0.8)
         await rig.gripper.open(); await say("released")
