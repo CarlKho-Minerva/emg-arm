@@ -92,8 +92,8 @@ async def main(live, cube):
                     await say("home; mode FETCH")
                 elif mode == "fetch":
                     if g == "L":
-                        log(g, "fetch")
                         ok = await pick(rig, cube)
+                        log(g, "fetch: picked and proved" if ok else "fetch: missed")
                         await say("fetched; at greet" if ok else "could not fetch")
                     elif g == "R":
                         log(g, "hand it over (palm)")

@@ -220,8 +220,19 @@ def load_calib():
     return UP, UP, DOWN, 0.5
 
 
+def load_model():
+    """Carl's trained classifier (train_face.py), or None to fall back to the thresholds."""
+    if not os.path.exists(FACE_MODEL):
+        return None
+    import json
+    return json.load(open(FACE_MODEL))
+
+
 def main(window=True, cam=0):
     up_l, up_r, down, jaw_open = load_calib()
+    model = load_model()
+    if model:
+        print(f"using your trained face model ({len(model['labels'])} classes); thresholds only as a backstop", flush=True)
     mouth_up = False; mouth_at = 0.0; jaw = 0.0
     published_at = 0.0
     print(f"thresholds: left {up_l:.2f} right {up_r:.2f} release {down:.2f}" + ("" if os.path.exists(CALIB) else " (defaults; run --calibrate)"), flush=True)
@@ -246,6 +257,10 @@ def main(window=True, cam=0):
         res = det.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), int((time.time() - t0) * 1000))
         sc = smile_scores(res)
         now = time.time()
+        label = None
+        if model and res.face_blendshapes:
+            from train_face import predict
+            label, _ = predict(model, {b.category_name: b.score for b in res.face_blendshapes[0]}, rest_margin=0.2)
         if sc and res.face_blendshapes:
             jaw = {b.category_name: b.score for b in res.face_blendshapes[0]}.get("jawOpen", 0.0)
             if jaw > jaw_open and not mouth_up and now - mouth_at > 2.0:
@@ -257,7 +272,10 @@ def main(window=True, cam=0):
             l, r = sc
             # after the mirror, the picture's left is YOUR left, and the model's "Left" is the picture's left
             if up is None:
-                if (l > up_l or r > up_r) and now - released_at > REFRACTORY_S:
+                if model and label in ("left", "right", "both") and now - released_at > REFRACTORY_S:
+                    up = {"left": "L", "right": "R", "both": "B"}[label]
+                    up_since = now; counted = False
+                elif not model and (l > up_l or r > up_r) and now - released_at > REFRACTORY_S:
                     if l > up_l and r > up_r:           # both sides up together: B
                         up = "B"
                     else:
@@ -267,7 +285,8 @@ def main(window=True, cam=0):
                 if not counted and now - up_since >= MIN_HOLD_S:
                     group.append(up); last_event = now; counted = True
                     print(f"  {''.join(group)}", flush=True)
-                if l < down and r < down:
+                released = (label in ("rest", "mouth", None)) if model else (l < down and r < down)
+                if released and (not model or now - up_since > MIN_HOLD_S):
                     up = None; released_at = now
         if group and up is None and now - last_event > GROUP_S:
             g = "".join(group)
