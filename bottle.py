@@ -20,7 +20,7 @@ BOTTLE_RADIUS = 33.0    # mm, a 500 ml water bottle; the depth map sees the near
 BOTTLE_HEIGHT = 210.0   # mm, standing; the table is z=0 in the arm's frame (a hand on it read 1 to 2 cm), so the
                         # grasp height comes from the known height, not from the depth of the cap pixel
 GRASP_BELOW_TOP = 45.0  # mm below the top of the bottle to close the fingers (on the neck/shoulder, not the cap)
-MAX_REACH = 750.0       # mm from the base; further than this the arm cannot grasp from above
+MAX_REACH = 800.0       # mm from the base; a level side grasp reaches further than a claw from above (full stretch measured 851)
 _model = None
 
 

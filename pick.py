@@ -61,10 +61,16 @@ async def pick_once(rig, attempt):
     if rig.live:
         await rig.home.set_position(2); await asyncio.sleep(5)
         await rig.gripper.open()
-    bottles, _ = await find_bottles(rig.machine, rig.cam, rig.intr)
-    bottles = [b for b in bottles if b[0] >= 0.5 and math.hypot(b[2][0], b[2][1]) <= MAX_REACH]
+    seen, _ = await find_bottles(rig.machine, rig.cam, rig.intr)
+    seen = [b for b in seen if b[0] >= 0.5]
+    bottles = [b for b in seen if math.hypot(b[2][0], b[2][1]) <= MAX_REACH]
     if not bottles:
-        await say("bottle not seen, or further than the arm can reach; put it nearer the arm"); return False
+        if seen:
+            d = math.hypot(seen[0][2][0], seen[0][2][1])
+            await say(f"bottle seen but {d:.0f} mm from the base, over the {MAX_REACH:.0f} limit: slide it toward the arm")
+        else:
+            await say("no bottle seen from home")
+        return False
     conf, box, c, top, g = bottles[0]
     cx, cy = c[0], c[1]
     flat = math.hypot(cx, cy)
