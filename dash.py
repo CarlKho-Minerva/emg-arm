@@ -100,7 +100,8 @@ def start(name):
             return f"already running elsewhere (pid {others[0]}); stop that window first"
         env = dict(os.environ, GLOG_minloglevel="2", TF_CPP_MIN_LOG_LEVEL="2", PYTHONUNBUFFERED="1")
         log = open(os.path.join(DATA, PROGRAMS[name]["log"]), "ab")
-        procs[name] = subprocess.Popen(PROGRAMS[name]["cmd"], cwd=HERE, stdout=log, stderr=subprocess.STDOUT, env=env)
+        # start_new_session: a closed Terminal window (SIGHUP to the dashboard's group) must not take the arm loop down with it
+        procs[name] = subprocess.Popen(PROGRAMS[name]["cmd"], cwd=HERE, stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True)
         return f"started pid {procs[name].pid}"
 
 
