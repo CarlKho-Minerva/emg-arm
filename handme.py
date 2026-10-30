@@ -44,6 +44,9 @@ STEADY_S = 0.6        # still for this long before ranging and moving
 TAKE_SIZE = 0.12      # wrist-to-knuckle over this fraction of the picture width (a palm 25 cm below reads ~0.15)
 TAKE_CENTRE = 0.18    # ...and within this of the gripper's point in the picture
 TAKE_S = 0.7          # ...for this long: let go
+FACE_STANDOFF = 250.0 # mm in front of the face to hold the thing
+FACE_BELOW = 60.0     # mm below the nose (mouth/chin height)
+DONE_S = 4.0          # hold this long, then take it back (tomorrow: the clench ends it)
 LOOK_ABOVE = 250.0    # mm above the palm for the claw pose where the camera can still see under the gripper
 DROP_ABOVE = 110.0    # mm above the palm to descend to, blind, before opening
 DWELL_S = 2.0         # hand still, arm at the standoff, for this long: let go
@@ -256,6 +259,116 @@ async def handover(rig):
             pending.cancel()
         if live:
             await arm.do_command({"set_speed": 60.0, "set_acceleration": 500.0})
+    if live:
+        await greet.set_position(2)
+    await say("back to greet; done")
+
+
+async def hold_for_face(rig, put_back=None):
+    """Bring the thing to a spot in front of Carl's face and hold it there until he is done, then take it
+    back. Follow the nose with the tuned pan/tilt follower (colour frames only); when the face has been
+    still STEADY_S, ONE depth read, direct move to FACE_STANDOFF in front of and a little below the nose,
+    gripper facing him; hold for DONE_S (tomorrow: his jaw clench); then put the cube back where it was
+    picked, if a spot is known, else return to greet still holding it."""
+    machine, cam, intr, pose, arm, gripper, greet, live = (rig.machine, rig.cam, rig.intr, rig.pose,
+                                                           rig.arm, rig.gripper, rig.greet, rig.live)
+    from follow import DEADBAND, GAIN, SMOOTH, STEP_CAP, depth_at
+    from tracker import face_point
+    from viam.proto.component.arm import JointPositions
+    rec = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "handover", time.strftime("%Y%m%d-%H%M%S") + "-face")
+    os.makedirs(rec, exist_ok=True)
+    await say(f"following your face (recording {os.path.basename(rec)}); it will hold the cube in front of you")
+    if live:
+        await arm.do_command({"set_speed": 60.0, "set_acceleration": 200.0})
+    sm = None; still_since = None; last_seen = 0.0; seen_n = 0; frame_n = 0; last_beat = 0.0
+    pending = None; adx = ady = 0.0; held_at = None
+    t_start = time.time()
+    try:
+        while time.time() - t_start < FOLLOW_MAX_S:
+            if time.time() - last_beat > 3:
+                last_beat = time.time()
+                await say(f"   ...{frame_n} frames, face seen in {seen_n}; " + (f"still {time.time() - still_since:.1f} s" if still_since else "not still") + ("; holding" if held_at else ""))
+            jpeg, _ = await grab(cam, want_depth=False)
+            open(os.path.join(rec, f"{time.time():.3f}.jpg"), "wb").write(jpeg)
+            frame_n += 1
+            if held_at:
+                if time.time() - held_at >= DONE_S:
+                    await say(f"held {DONE_S:.0f} s in front of you: done (tomorrow this is the clench)")
+                    break
+                continue
+            raw = face_point(pose, jpeg) if frame_n % 2 == 1 else None   # the body model every other frame
+            if raw is None:
+                if time.time() - last_seen > 0.5:
+                    still_since = None; sm = None
+                continue
+            seen_n += 1; last_seen = time.time()
+            prev = sm
+            sm = raw if sm is None else (sm[0] + SMOOTH * (raw[0] - sm[0]), sm[1] + SMOOTH * (raw[1] - sm[1]))
+            ex, ey = sm[0] - 0.5, sm[1] - 0.5
+            centred = abs(ex) < DEADBAND and abs(ey) < DEADBAND
+            moving = prev is not None and math.dist(sm, prev) > STEADY_PX
+            if moving:
+                still_since = None
+            elif still_since is None:
+                still_since = time.time()
+            if live and not centred:
+                dx = max(-STEP_CAP, min(STEP_CAP, -GAIN * ex)); dy = max(-STEP_CAP, min(STEP_CAP, GAIN * ey))
+                adx += 0.7 * (dx - adx); ady += 0.7 * (dy - ady)
+                j = list((await arm.get_joint_positions()).values)
+                j[0] += adx; j[2] += ady
+                if pending and not pending.done():
+                    pending.cancel()
+                pending = asyncio.create_task(arm.move_to_joint_positions(JointPositions(values=j)))
+                continue
+            if centred and still_since and time.time() - still_since >= STEADY_S:
+                if pending and not pending.done():
+                    pending.cancel()
+                _, depth = await grab(cam, want_depth=True)
+                mm = depth_at(depth, *sm)
+                if not mm or mm < 280:
+                    await say(f"face centred but too near to range ({mm} mm)"); still_since = None; continue
+                u, v = sm[0] * intr.width_px, sm[1] * intr.height_px
+                x = (u - intr.center_x_px) * mm / intr.focal_x_px; y = (v - intr.center_y_px) * mm / intr.focal_y_px
+                w = (await machine.transform_pose(PoseInFrame(reference_frame="cam", pose=Pose(x=x, y=y, z=mm, o_z=1)), "world")).pose
+                fx, fy, fz = w.x, w.y, w.z
+                flat = math.hypot(fx, fy)
+                want = min(max(flat - FACE_STANDOFF, 200.0), REACH)
+                tx, ty, tz = fx * want / flat, fy * want / flat, max(fz - FACE_BELOW, MIN_Z)
+                tx = min(tx, SAFE_X)
+                await say(f"face at x={fx:.0f} y={fy:.0f} z={fz:.0f} ({mm} mm away); holding the cube at x={tx:.0f} y={ty:.0f} z={tz:.0f}, facing you")
+                if live:
+                    try:
+                        await asyncio.wait_for(arm.move_to_position(Pose(x=tx, y=ty, z=tz, o_x=fx / flat, o_y=fy / flat, o_z=0, theta=0)), 20)
+                    except Exception as e:
+                        await say(f"direct move refused: {str(e)[:80]}"); still_since = None; continue
+                held_at = time.time()
+        else:
+            await say(f"no hold in {FOLLOW_MAX_S:.0f} s")
+    finally:
+        if pending and not pending.done():
+            pending.cancel()
+        if live:
+            await arm.do_command({"set_speed": 60.0, "set_acceleration": 500.0})
+    # take it back
+    if live and put_back:
+        px, py = put_back
+        await say(f"taking it back to x={px:.0f} y={py:.0f}")
+        from viam.services.motion import MotionClient
+        from viam.components.switch import Switch
+        home = Switch.from_robot(machine, "home")
+        await home.set_position(2); await asyncio.sleep(3)
+        mo = rig.motion
+        for z in (160.0, 76.0):
+            try:
+                await asyncio.wait_for(mo.move(component_name="gripper", destination=PoseInFrame(reference_frame="world", pose=Pose(x=px, y=py, z=z, o_x=0, o_y=0, o_z=-1, theta=0))), 40)
+            except Exception as e:
+                await say(f"put-back move refused: {str(e)[:80]}"); break
+        await gripper.open(); await asyncio.sleep(0.5)
+        try:
+            await asyncio.wait_for(mo.move(component_name="gripper", destination=PoseInFrame(reference_frame="world", pose=Pose(x=px, y=py, z=160.0, o_x=0, o_y=0, o_z=-1, theta=0))), 40)
+        except Exception:
+            pass
+        await say("put back")
     if live:
         await greet.set_position(2)
     await say("back to greet; done")

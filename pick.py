@@ -22,7 +22,7 @@ from viam.proto.common import Pose, PoseInFrame
 
 from bottle import MAX_REACH, find_bottles
 from camgrab import grab
-from handme import Rig, StepTimeout, handover, say, step
+from handme import Rig, StepTimeout, handover, hold_for_face, say, step
 from viamarm import connect
 
 ABOVE_MM = 120.0
@@ -339,12 +339,16 @@ async def _unused_pick(rig):
     return False
 
 
-async def main(live, cube=None):
+async def main(live, cube=None, face=False):
     async with await connect() as machine:
         rig = await Rig(machine, live).setup()
+        rig.last_grasp = None
         ok = await pick(rig, cube)
         if ok or not live:
-            await handover(rig)
+            if face:
+                await hold_for_face(rig, put_back=rig.last_grasp)
+            else:
+                await handover(rig)
         else:
             await say("nothing in the gripper; back to greet")
             if live:
@@ -355,5 +359,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--live", action="store_true")
     ap.add_argument("--cube", choices=["red", "green", "blue", "yellow"], help="pick this coloured cube instead of the bottle")
+    ap.add_argument("--face", action="store_true", help="hold the thing in front of Carl's face, then put it back (instead of the palm drop)")
     a = ap.parse_args()
-    asyncio.run(main(a.live, a.cube))
+    asyncio.run(main(a.live, a.cube, a.face))

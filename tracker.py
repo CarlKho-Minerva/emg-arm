@@ -72,6 +72,20 @@ def arm_target(det, jpeg, side="left"):
     return None
 
 
+NOSE = 0
+
+
+def face_point(det, jpeg):
+    """(x, y) of the nearest person's nose, 0..1 of the frame, or None. The nearest body is the widest."""
+    bgr = cv2.imdecode(np.frombuffer(jpeg, "uint8"), cv2.IMREAD_COLOR)
+    img = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
+    res = det.detect(img)
+    p = nearest_body(res)
+    if p is None or p[NOSE].visibility < VISIBLE:
+        return None
+    return p[NOSE].x, p[NOSE].y
+
+
 def both_arms(det, jpeg):
     return {side: arm_target(det, jpeg, side) for side in ("left", "right")}
 
