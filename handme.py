@@ -57,6 +57,25 @@ async def say(msg):
     print(f"{time.strftime('%H:%M:%S')}  {msg}", flush=True)
 
 
+class StepTimeout(Exception):
+    pass
+
+
+async def step(label, coro, seconds=20.0):
+    """Run one robot call with a time limit and a log line before and after. A call that never
+    returns (practice hung 4 min on a go-to, 29 Oct 18:03) becomes a StepTimeout the loop can handle."""
+    await say(f"> {label}")
+    t0 = time.time()
+    try:
+        r = await asyncio.wait_for(coro, timeout=seconds)
+    except asyncio.TimeoutError:
+        await say(f"! {label}: no answer in {seconds:.0f} s")
+        raise StepTimeout(label)
+    if time.time() - t0 > 3:
+        await say(f"  {label}: {time.time() - t0:.1f} s")
+    return r
+
+
 class Rig:
     """Everything the steps need, built once per connection."""
     def __init__(self, machine, live):

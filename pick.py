@@ -21,7 +21,7 @@ import time
 from viam.proto.common import Pose, PoseInFrame
 
 from bottle import MAX_REACH, find_bottles
-from handme import Rig, handover, say
+from handme import Rig, StepTimeout, handover, say, step
 from viamarm import connect
 
 ABOVE_MM = 120.0
@@ -47,7 +47,13 @@ async def plan_to(rig, x, y, z, label, o=(0.0, 0.0, -1.0), theta=0.0):
     dest = PoseInFrame(reference_frame="world", pose=Pose(x=x, y=y, z=z, o_x=o[0], o_y=o[1], o_z=o[2], theta=theta))
     t0 = time.time()
     try:
-        ok = await rig.motion.move(component_name="gripper", destination=dest)
+        ok = await step(f"planner: {label}", rig.motion.move(component_name="gripper", destination=dest), seconds=40.0)
+    except StepTimeout:
+        try:
+            await rig.arm.stop()
+        except Exception:
+            pass
+        return False
     except Exception as e:
         await say(f"planner, {label}: {str(e)[:100]}"); return False
     await say(f"planner, {label}: ok={ok} in {time.time() - t0:.1f} s")
@@ -140,13 +146,13 @@ async def pick_cube_once(rig, colour, attempt):
     if attempt == 1:
         await say("to greet first; gripper open")
         if rig.live:
-            await rig.greet.set_position(2); await asyncio.sleep(4)
-            await rig.gripper.open(); await asyncio.sleep(1)
+            await step("greet go-to", rig.greet.set_position(2)); await asyncio.sleep(4)
+            await step("gripper open", rig.gripper.open()); await asyncio.sleep(1)
     await say(f"attempt {attempt}: to home (the view of the table)")
     if rig.live:
-        await rig.home.set_position(2); await asyncio.sleep(5)
-        await rig.gripper.open()
-    found = await find_cubes(rig.machine, rig.cam, rig.intr, [colour])
+        await step("home go-to", rig.home.set_position(2)); await asyncio.sleep(5)
+        await step("gripper open", rig.gripper.open())
+    found = await step(f"find {colour} cube", find_cubes(rig.machine, rig.cam, rig.intr, [colour]))
     if colour not in found:
         await say(f"no {colour} cube seen from home"); return False
     (cx, cy, cz), area, box = found[colour]
@@ -173,7 +179,7 @@ async def pick_cube_once(rig, colour, attempt):
             if not await plan_to(rig, cx, cy, hover, f"over the cube at z={hover:.0f}"):
                 return False
             await asyncio.sleep(0.4)
-            r = await find_cube_close(rig.machine, rig.cam, rig.intr, colour)
+            r = await step("close look", find_cube_close(rig.machine, rig.cam, rig.intr, colour))
             if r is None or r[0] is None:
                 await say(f"   close look at z={hover:.0f}: cube not seen from here; keeping the last estimate")
                 continue
@@ -189,9 +195,9 @@ async def pick_cube_once(rig, colour, attempt):
         for z in CUBE_STAGES:
             if not await plan_to(rig, cx, cy, z, f"down to z={z:.0f}"):
                 break
-            await rig.gripper.grab()
+            await step("gripper close", rig.gripper.grab())
             try:
-                posn = (await rig.gripper.do_command({"get": True})).get("pos", -1)
+                posn = (await step("finger position", rig.gripper.do_command({"get": True}))).get("pos", -1)
             except Exception:
                 posn = -1
             await say(f"   closed at z={z:.0f}: finger position {posn:.0f}")
@@ -214,14 +220,22 @@ async def pick_cube_once(rig, colour, attempt):
     await plan_to(rig, cx, cy, CUBE_ABOVE, "lift")
     rig.last_grasp = (cx, cy)
     await say(f"{colour} cube confirmed in the gripper; to greet, to find your hand")
-    await rig.greet.set_position(2); await asyncio.sleep(5)
+    await step("greet go-to", rig.greet.set_position(2)); await asyncio.sleep(5)
     return True
 
 
 async def pick(rig, cube=None):
     """Try until the fingers confirm the object, up to MAX_TRIES."""
     for attempt in range(1, MAX_TRIES + 1):
-        ok = await (pick_cube_once(rig, cube, attempt) if cube else pick_once(rig, attempt))
+        try:
+            ok = await (pick_cube_once(rig, cube, attempt) if cube else pick_once(rig, attempt))
+        except StepTimeout as e:
+            await say(f"attempt {attempt} abandoned: {e} hung; stopping the arm and trying again")
+            try:
+                await asyncio.wait_for(rig.arm.stop(), 5)
+            except Exception:
+                pass
+            ok = False
         if ok:
             return True
         if not rig.live:
