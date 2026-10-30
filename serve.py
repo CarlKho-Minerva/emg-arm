@@ -178,7 +178,23 @@ async def follow_step(rig, state):
         asyncio.ensure_future(rig.arm.move_to_joint_positions(JointPositions(values=j))).add_done_callback(_quiet)
 
 
-NATURAL_EXTEND = False    # Carl, 30 Oct 15:27: use the saved pose, not the depth push
+NATURAL_EXTEND = False    # the depth push is off (Carl, 30 Oct 15:27)
+FORWARD_MM = 150.0        # on a smile: push the gripper this far straight along where it points (at Skully, after following), then open
+
+
+async def push_forward(rig):
+    """Move the gripper FORWARD_MM along its own pointing axis, same orientation. Returns True if it went."""
+    from viam.proto.common import Pose
+    try:
+        g = (await rig.motion.get_pose("gripper", "world")).pose
+        n = (g.o_x ** 2 + g.o_y ** 2 + g.o_z ** 2) ** 0.5 or 1.0
+        tx, ty, tz = g.x + FORWARD_MM * g.o_x / n, g.y + FORWARD_MM * g.o_y / n, max(g.z + FORWARD_MM * g.o_z / n, 80.0)
+        await say(f"feeding forward {FORWARD_MM:.0f} mm to x={tx:.0f} y={ty:.0f} z={tz:.0f}")
+        await asyncio.wait_for(rig.arm.move_to_position(Pose(x=tx, y=ty, z=tz, o_x=g.o_x, o_y=g.o_y, o_z=g.o_z, theta=g.theta)), 15)
+        return True
+    except Exception as e:
+        await say(f"forward move refused ({str(e)[:60]}); using the saved pose")
+        return False
 FOLLOW_SIGN = -1.0        # the new greet (elbow at -190) turns the wrist camera round relative to Thursday's pose: both axes read backwards
 EXTEND_SHORT_MM = 80.0    # stop this far short of the tape (the cube's centre sits ~60 mm ahead of the steered point)
 EXTEND_MIN, EXTEND_MAX = 60.0, 350.0
@@ -220,6 +236,8 @@ async def extend_and_release(rig, fstate=None):
     if not rig.live:
         return True, "dry: would extend and open"
     moved = await extend_toward_tape(rig, fstate or {}) if NATURAL_EXTEND else None
+    if moved is None and await push_forward(rig):
+        moved = FORWARD_MM
     if moved is not None:
         await asyncio.sleep(0.8)
         await rig.gripper.open(); await say("released")
