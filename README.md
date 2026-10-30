@@ -5,19 +5,20 @@ Viam x MongoDB Robot Hackathon, SF, 29 to 30 Oct 2026. Solo entry by Carl Kho (S
 A UFactory xArm 6 that finds Carl by camera, follows his arm, and (next) takes orders from his
 face muscles through a Cerelog EMG board. No hands, no voice.
 
-## Status, end of day 1 (29 Oct, 18:20)
+## Status, end of day 1 (29 Oct, 18:58)
 
-**Correction.** Earlier today this file said the cube pick-and-handover worked. It did not: the "held"
-check read the finger position before the fingers had moved, so an open gripper counted as a hold, 12
-times in a row. Carl, watching, saw nothing picked up. The check is now: fingers settled in the middle
-of their range AND the cube gone from its spot in the camera after the lift. Rows in
-`data/practice.json` before 18:15 are marked untrusted.
+**The demo works, verified:** `.venv/bin/python pick.py --live --cube green` goes to greet, looks at the
+table from home, finds the green cube by colour (cube-shaped blob, on the table, nearest the arm), hovers,
+servos until the cube is centred under the gripper, descends in stages (floor 70 mm) closing at each until
+the fingers settle on a cube (reads 120 to 700), then proves the lift by shifting 10 cm sideways and
+looking (the cube moved with the gripper: 19 mm from it, 110 mm from its spot), goes to greet, follows
+Carl's left hand with the tuned follower (colour frames only), and opens when a hand fills the picture
+(wrist-to-knuckle over 0.25 of the width) for 0.7 s. Last run 18:58: picked at fingers 290, released
+2 s after the hand came to the cube. Red is not a cube (two triangles); green, blue, yellow pick 3/3.
 
-What is verified on the real arm: the follower (20 Hz on the box, 7.6 % wrong-hand frames after the
-fixes), the bottle side-grasp (held twice, judged by lift and carry), the planner going above and down
-onto a cube's measured position within a millimetre of the asked point, the coarse-to-fine looks
-moving the estimate 6 to 26 mm. Not yet verified: a cube actually lifted. `practice.py` runs the pick
-on its own and logs each try; `pick.py --live --cube red` is the demo once it does.
+What made it work, in order: measuring the camera-to-gripper offset (+25, -14 mm) by letting the gripper
+place the cube and the camera look; a truthful hold check (settled fingers plus the sideways-shift test;
+the first check read the fingers too early and reported 12 false holds); the 70 mm floor set by eye.
 
 ## What was measured today
 
