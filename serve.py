@@ -180,7 +180,9 @@ async def follow_step(rig, state):
 
 
 NATURAL_EXTEND = False    # the depth push is off (Carl, 30 Oct 15:27)
-FORWARD_MM = 150.0        # fallback: push the gripper this far straight along where it points
+SMILE_HOLD_S = 3.0        # while following: a smile held this long is the feed command
+FEED_PAUSE_S = 1.0        # the arm stops following, waits this long, then extends
+FORWARD_MM = 150.0        # push the gripper this far straight along where it points (shorter if the arm cannot)
 EXTEND_DELTA = [0.0, 0.0, +4.07, 0.0, -8.83, 0.0]   # Carl's extend minus his greet (30 Oct 15:30): elbow +4.1, wrist +(-8.8). Applied from wherever the follow left the arm.
 
 
@@ -326,6 +328,9 @@ async def handle(rig, g, mode, following, fstate, steering, live, cube, face_fee
                 await say("fetched; following Skully. Smile when he is ready.")
             else:
                 await say("fetched; at greet" if ok else "could not fetch")
+        elif g == "B" and following and SKULLY_MODE == "extend":
+            log(g, f"quick smile while following: hold it {SMILE_HOLD_S:.0f} s to feed")
+            return mode, following, fstate, steering
         elif g in ("R", "B") and SKULLY_MODE == "extend":
             ep = Episode.start("feed_skully", g, mode=mode, how="extend")
             if not following and not await holding(rig):          # while following, the feed runs whatever the fingers hold (Carl's test, 15:45)
@@ -400,7 +405,7 @@ async def main(live, cube, face_feed):
         rig.last_grasp = None
         mode = "serve"; set_mode(mode)
         steering = False
-        following = False; fstate = {}
+        following = False; fstate = {}; b_since = None
         since = time.time()
         last_view = 0.0
         await say(f"Served With a Smile. Layer SERVE. Left cheek: fetch the {cube} cube. Right cheek: feed Skully. One smile: let go. Two smiles: steer.")
@@ -425,6 +430,23 @@ async def main(live, cube, face_feed):
             if not groups:
                 if following and mode == "serve":
                     await follow_step(rig, fstate)          # keeps the tape centred; ~8 to 10 steps a second
+                    # a smile HELD for SMILE_HOLD_S is the feed command while following (Carl, 15:50)
+                    if holding_now() == "B":
+                        b_since = b_since or time.time()
+                        if time.time() - b_since >= SMILE_HOLD_S:
+                            b_since = None; following = False
+                            log("B", f"smile held {SMILE_HOLD_S:.0f} s: stopping the follow, then feeding")
+                            await say(f"smile held {SMILE_HOLD_S:.0f} s: feeding in {FEED_PAUSE_S:.0f} s")
+                            await asyncio.sleep(FEED_PAUSE_S)
+                            ep = Episode.start("feed_skully", "B-held", mode=mode, how="extend")
+                            try:
+                                ok, why = await extend_and_release(rig, fstate)
+                            except Exception as e:
+                                ok, why = False, f"arm refused: {str(e)[:80]}"
+                            log("B", f"feed Skully: {why}"); ep.end(ok, why)
+                            since = time.time()                      # the smile's own release event is not a second command
+                    else:
+                        b_since = None
                     await asyncio.sleep(0.03)
                     continue
                 if time.time() - last_view > 0.25:
