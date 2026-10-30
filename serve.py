@@ -26,7 +26,7 @@ import time
 
 from camgrab import grab
 from episodes import Episode
-from handme import Rig, feed, say
+from handme import Rig, feed, feed_held, say
 from pick import HELD_MAX, HELD_MIN, pick, settled_fingers
 from skull import feed_skully
 from viamarm import connect
@@ -42,7 +42,7 @@ STEER_DEG = 8.0        # one cheek = this much waist turn (joint 0)
 STEER_SIGN = {"L": -1.0, "R": +1.0}
 
 MODES = {
-    "serve": [("L", "left cheek", "fetch the cube"), ("R", "right cheek", "feed Skully"), ("B", "one smile", "let go"),
+    "serve": [("L", "left cheek", "fetch the cube"), ("R", "right cheek", "feed Skully (hold him up, tape to the camera)"), ("B", "one smile", "let go"),
               ("BB", "two smiles", "to STEER"), ("BBB", "three smiles", "home (stop)")],
     "steer": [("L", "left cheek", f"turn {STEER_DEG:.0f} deg to your left"), ("R", "right cheek", f"turn {STEER_DEG:.0f} deg to your right"),
               ("B", "one smile", "grab / let go"), ("BB", "two smiles", "to SERVE"), ("BBB", "three smiles", "home (stop)")],
@@ -108,6 +108,9 @@ async def steer(rig, g):
     return j[0]
 
 
+SKULLY_MODE = "held"     # "held": Carl holds Skully up, the arm follows the tape and extends the cube (30 Oct 14:53); "table": skull.py's path
+
+
 async def main(live, cube, face_feed):
     async with await connect() as machine:
         rig = await Rig(machine, live).setup()
@@ -152,9 +155,15 @@ async def main(live, cube, face_feed):
                             ep.end(False, "nothing in the gripper")
                             await say("nothing in the gripper to feed him with; left cheek first")
                             continue
-                        ok, why = await feed_skully(rig, say, episode=ep)
-                        log(g, f"feed Skully: {why}")
-                        ep.end(ok, why)
+                        if SKULLY_MODE == "held":
+                            fed = await feed_held(rig)
+                            why = "cube brought to the mouth and held" if fed else "Skully not seen still; cube kept"
+                            log(g, f"feed Skully (held): {why}")
+                            ep.end(fed, why, mode_skully="held")
+                        else:
+                            ok, why = await feed_skully(rig, say, episode=ep)
+                            log(g, f"feed Skully: {why}")
+                            ep.end(ok, why)
                     elif g == "M":
                         ep = Episode.start("feed_face", g, mode=mode)
                         if not face_feed:
@@ -197,5 +206,7 @@ if __name__ == "__main__":
     ap.add_argument("--live", action="store_true")
     ap.add_argument("--cube", default="green")
     ap.add_argument("--face-feed", action="store_true", help="let the open mouth (M) run the feed-a-person path")
+    ap.add_argument("--skully", choices=["held", "table"], default="held", help="held: Carl holds Skully up (default); table: skull.py's find-from-home path")
     a = ap.parse_args()
+    SKULLY_MODE = a.skully
     asyncio.run(main(a.live, a.cube, a.face_feed))

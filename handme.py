@@ -393,15 +393,15 @@ async def hold_for_face(rig, put_back=None):
     await say("back to greet; done")
 
 
-async def feed(rig, put_back=None):
-    """Follow Carl's face with the tuned pan/tilt follower, bring the cube to FACE_STANDOFF in front of
-    his mouth, hold it there CHEW_S (he "chews"), then take it back: to its pick spot if known, else greet."""
-    machine, cam, intr, pose, arm, gripper, greet, live = (rig.machine, rig.cam, rig.intr, rig.pose,
-                                                           rig.arm, rig.gripper, rig.greet, rig.live)
+async def feed_target(rig, target_fn, standoff, below, hold_s, label, put_back=None, release=False):
+    """Follow a point in the wrist camera's picture with the tuned pan/tilt follower, bring the held cube to
+    `standoff` mm short of it and `below` mm under it, hold `hold_s` seconds (or until the follower is told
+    otherwise), then take the cube back: to its pick spot if put_back is given, else greet, still holding.
+    target_fn(jpeg) -> (x, y) in 0..1 of the frame, or None. `release`: open the gripper at the end of the hold."""
+    machine, cam, intr, arm, gripper, greet, live = rig.machine, rig.cam, rig.intr, rig.arm, rig.gripper, rig.greet, rig.live
     from follow import DEADBAND, GAIN, SMOOTH, STEP_CAP, depth_at
-    from tracker import face_point
     from viam.proto.component.arm import JointPositions
-    await say("feed: following your face; hold still and it brings the cube to your mouth")
+    await say(f"{label}: following; hold still and the cube comes to the mouth")
     if live:
         await arm.do_command({"set_speed": 60.0, "set_acceleration": 200.0})
     sm = None; still_since = None; last_seen = 0.0; frame_n = 0; last_beat = 0.0; seen_n = 0
@@ -411,15 +411,17 @@ async def feed(rig, put_back=None):
         while time.time() - t_start < FOLLOW_MAX_S:
             if time.time() - last_beat > 3:
                 last_beat = time.time()
-                await say(f"   ...{frame_n} frames, face seen in {seen_n}; " + (f"still {time.time() - still_since:.1f} s" if still_since else "not still") + ("; at the mouth" if held_at else ""))
+                await say(f"   ...{frame_n} frames, target seen in {seen_n}; " + (f"still {time.time() - still_since:.1f} s" if still_since else "not still") + ("; at the mouth" if held_at else ""))
             jpeg, _ = await grab(cam, want_depth=False)
             frame_n += 1
             if held_at:
-                if time.time() - held_at >= CHEW_S:
-                    await say(f"held {CHEW_S:.0f} s at your mouth: taking it back")
+                if time.time() - held_at >= hold_s:
+                    await say(f"held {hold_s:.0f} s at the mouth" + ("; letting go" if release else "; taking it back"))
+                    if release and live:
+                        await gripper.open(); await asyncio.sleep(0.5)
                     break
                 await asyncio.sleep(0.05); continue
-            raw = face_point(pose, jpeg) if frame_n % 2 == 1 else None
+            raw = target_fn(jpeg)
             if raw is None:
                 if time.time() - last_seen > 0.5:
                     still_since = None; sm = None
@@ -449,18 +451,18 @@ async def feed(rig, put_back=None):
                 _, depth = await grab(cam, want_depth=True)
                 mm = depth_at(depth, *sm) if depth else None
                 if depth is None:
-                    await say("no depth stream: cannot range a face, so no move toward it; stopping here"); break
-                if not mm or mm < 280:
-                    await say(f"face centred but too near to range ({mm} mm)"); still_since = None; continue
+                    await say("no depth stream: cannot range the target; stopping here"); break
+                if not mm or mm < 250:
+                    await say(f"target centred but too near to range ({mm} mm); a little further back"); still_since = None; continue
                 u, v = sm[0] * intr.width_px, sm[1] * intr.height_px
                 x = (u - intr.center_x_px) * mm / intr.focal_x_px; y = (v - intr.center_y_px) * mm / intr.focal_y_px
                 w = (await machine.transform_pose(PoseInFrame(reference_frame="cam", pose=Pose(x=x, y=y, z=mm, o_z=1)), "world")).pose
                 fx, fy, fz = w.x, w.y, w.z
                 flat = math.hypot(fx, fy)
-                want = min(max(flat - FACE_STANDOFF, 200.0), REACH)
-                tx, ty, tz = fx * want / flat, fy * want / flat, max(fz - FACE_BELOW, MIN_Z)
+                want = min(max(flat - standoff, 200.0), REACH)
+                tx, ty, tz = fx * want / flat, fy * want / flat, max(fz - below, MIN_Z)
                 tx = min(tx, SAFE_X)
-                await say(f"face at x={fx:.0f} y={fy:.0f} z={fz:.0f} ({mm} mm away); bringing the cube to x={tx:.0f} y={ty:.0f} z={tz:.0f}, {FACE_STANDOFF:.0f} mm short of your mouth")
+                await say(f"target at x={fx:.0f} y={fy:.0f} z={fz:.0f} ({mm} mm away); bringing the cube to x={tx:.0f} y={ty:.0f} z={tz:.0f}, {standoff:.0f} mm short")
                 if live:
                     try:
                         await asyncio.wait_for(arm.move_to_position(Pose(x=tx, y=ty, z=tz, o_x=fx / flat, o_y=fy / flat, o_z=0, theta=0)), 20)
@@ -468,12 +470,13 @@ async def feed(rig, put_back=None):
                         await say(f"direct move refused: {str(e)[:80]}"); still_since = None; continue
                 held_at = time.time()
         else:
-            await say(f"no feed in {FOLLOW_MAX_S:.0f} s")
+            await say(f"no target held still within {FOLLOW_MAX_S:.0f} s")
     finally:
         if pending and not pending.done():
             pending.cancel()
         if live:
             await arm.do_command({"set_speed": 60.0, "set_acceleration": 500.0})
+    fed = held_at is not None
     if live:
         await greet.set_position(2)
         if put_back:
@@ -493,6 +496,42 @@ async def feed(rig, put_back=None):
                 pass
             await greet.set_position(2)
     await say("back at greet; done")
+    return fed
+
+
+async def feed(rig, put_back=None):
+    """Feed a person: follow the nose, hold the cube FACE_STANDOFF short of the mouth CHEW_S, take it back."""
+    from tracker import face_point
+    pose = rig.pose
+    n = {"i": 0}
+    def nose(jpeg):
+        n["i"] += 1
+        return face_point(pose, jpeg) if n["i"] % 2 == 1 else None
+    return await feed_target(rig, nose, FACE_STANDOFF, FACE_BELOW, CHEW_S, "feed", put_back=put_back)
+
+
+SKULLY_STANDOFF = 70.0   # mm short of the tape: the cube's front goes to the teeth (cube centre ~60 mm ahead of the steered point)
+SKULLY_BELOW = 60.0      # mm below the tape: the open mouth (MEASURE on the skull)
+SKULLY_HOLD_S = 4.0      # seconds the cube stays at the mouth before the arm takes it back
+
+
+def tape_point(jpeg):
+    """(x, y) of the blue tape on Skully's nose in the wrist camera's picture, 0..1, or None."""
+    import cv2, numpy as np
+    from skull import tape_blobs
+    bgr = cv2.imdecode(np.frombuffer(jpeg, "uint8"), cv2.IMREAD_COLOR)
+    bl = tape_blobs(bgr)
+    if not bl:
+        return None
+    h, w = bgr.shape[:2]
+    area, (cu, cv_), box = bl[0]
+    return cu / w, cv_ / h
+
+
+async def feed_held(rig, put_back=None):
+    """Feed Skully while Carl holds him up in front of the arm: follow the tape on his nose, when still bring
+    the cube to the mouth, hold SKULLY_HOLD_S, take it back to greet (still holding; a smile lets go)."""
+    return await feed_target(rig, tape_point, SKULLY_STANDOFF, SKULLY_BELOW, SKULLY_HOLD_S, "feed Skully (held)", put_back=put_back)
 
 
 async def main(live):
