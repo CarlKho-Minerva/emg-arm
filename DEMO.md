@@ -236,29 +236,43 @@ back to greet with the cube. Then put him down, smile right again, he eats.
 2. `.venv/bin/python serve.py --live --cube green`
 3. `open run_dash.command`, http://localhost:8790, Mac facing the judges.
 
-### Three minutes, spoken
+### Three minutes, spoken (rewritten 30 Oct 15:05 to what is built)
 
-0:00 "Meet Skully. He's dead hungry." (pause) "Jokes aside: for someone with a cervical spinal cord injury, the
-spinal cord is damaged in the neck, so the arms and hands can be mostly paralysed while the face still moves.
-Bringing food to your own mouth needs another person. This asks: what if a small facial movement were enough?"
+0:00. "Meet Skully. He's dead hungry." (the laugh; then the photo on the Why tab for eight seconds)
+"Jokes aside. For someone with a cervical spinal cord injury the cord is damaged in the neck, the arms and hands are
+mostly paralysed, and the face still moves. Bringing food to your own mouth becomes another person's job, three times
+a day. We asked one narrow question: is a half-smile enough to be fed?"
 
-0:25 "This is Served With a Smile. A UFactory xArm 6 on Viam, the MacBook camera reading my face, a tiny
-classifier I trained on my own face in 20 seconds. Four gestures, no hands, no voice." (left cheek) "That is
-fetch: find the cube, pick it, prove it has it by moving sideways and looking."
+0:25. "This is Served With a Smile. A laptop camera reads my face. The arm does the handling; it never sees my face,
+it only reads four named events. Watch." (left cheek) "One gesture. The arm's own camera found the cube by colour, turned
+its fingers to the cube's angle, picked it, and checked its own grip by moving sideways and looking at where the cube
+was. If the cube had been knocked away it would say so instead of pretending."
 
-1:00 "Now Skully is hungry. But the robot does not feed him because I smiled. It looks for the tape on his nose
-twice, a second apart. If he moved, it refuses." (move Skully, right cheek) "Refused; he was moving. He keeps
-the cube." (put Skully down) (right cheek) "Still, in reach: it comes in level and lets go. Bon appetit, Skully."
+1:00. (pick Skully up, tape toward the arm's camera) "Now Skully is hungry. The robot follows the tape on his nose with
+the same controller that tracked my hand yesterday. It moves in only once he holds still." (hold him still; right cheek)
+"One deliberate gesture." (the cube comes to the mouth, holds, returns) "Bon appetit, Skully." (full smile: let go)
 
-2:00 "Every command is an episode: the gesture, what it saw, the three checks, the outcome, how long. On disk
-at once, then MongoDB: 98 documents so far, Thursday's runs backfilled with their real timestamps" (point at the
-MongoDB panel on the screen: Atlas connected, 98 synced).
-"Modular: the face reader writes events to a file; the arm loop reads events. Swap the face reader for the
-EMG board (hold it up) and nothing on the arm side changes. That is the next step: the same four commands
-from the muscle signal, for a face that barely moves."
+1:50. "Two smiles change layer." (two smiles, hold a cheek) "Now a held cheek steers the arm, mirrored for me because the
+arm faces me. Three smiles is the stop." (three smiles: home)
 
-2:40 "Solo entry. The EMG driver predates the event; everything touching the arm, the camera and the log was
-written here. Thank you."
+2:05. (point at the screen) "Every command is one record in MongoDB Atlas: the gesture, what each camera saw, the checks
+that passed, the outcome, the time it took. Yesterday's forty tuning runs are in there with their real timestamps. The
+face reader and the arm share nothing but that event stream, which is why the next input is this." (hold up the EMG
+board) "Two pads on the cheeks read the electrical signal of the muscle, for a face that barely moves. Same four events,
+same file; the arm does not change."
+
+2:40. "Why it matters in money. A home health aide in the United States costs a median of $34 an hour, $77,792 a year on
+a 44-hour week (Genworth and CareScout Cost of Care Survey, 2024). A meal with help is half an hour of that attention
+that cannot be shared or scheduled away: about $17 a meal, $51 a day, close to $19,000 a year for one person's meals.
+In words: the robot takes the mechanical half-hour and gives the carer back the floor, and gives the person the pace
+they choose. Solo entry; the EMG driver predates the event, everything on the arm, the cameras and the database was
+built here. Thank you."
+
+Questions they will ask: Does it feed a real person? Not yet; a person needs force limits, a breakaway utensil and
+swallowing safety that are not built. How reliable is the face? Trained on 2,629 frames of my own face in six classes,
+including "other faces" (talking, frowning); held-out 787 of 789. What if he moves? The follower keeps the tape centred;
+the arm moves in only after a second of stillness and stops where it was told. Why MongoDB and not a log file? The file
+is there too; the database is where the records are queried, compared across inputs and shown live.
 
 ### Submission form (https://forms.gle/T4Z5ah4M55uS7KDr8, by 3:00 PM), suggested answers
 
