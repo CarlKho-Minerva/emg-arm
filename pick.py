@@ -24,7 +24,8 @@ from handme import Rig, handover, say
 from viamarm import connect
 
 ABOVE_MM = 120.0
-LABEL_Z = 100.0        # mm above the table: the blue label, the middle of the bottle's body
+LABEL_Z = 135.0        # mm above the table, on the label; the fingers hang below the steered point and
+                       # scratched the table at 100 (29 Oct 17:38)
 PRE_MM = 160.0         # stop this far short of the bottle's axis before sliding in
 MIN_PRE_DIST = 530.0   # mm from the base: the nearest a level pre-grasp pose can be without self-collision
 IN_MM = 35.0           # gripper frame this far short of the axis when closing (fingers reach past it)
