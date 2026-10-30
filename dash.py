@@ -184,6 +184,7 @@ def state():
         "episodes": episode_stats(),
         "skully": read_json(os.path.join(DATA, "skully.json")),
         "smile_out": tail(os.path.join(DATA, "smile.out"), 4),
+        "mode": read_json(os.path.join(DATA, "mode.json")),
     }
 
 
@@ -241,11 +242,12 @@ pre.log{margin:0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color
 <nav>
   <h1>Served With a Smile</h1>
   <div class="sub">Meet Skully. He's dead hungry.</div>
+  <div class="sub" id="layer" style="color:var(--ok);font-weight:600"></div>
   <button data-tab="robot" class="on"><span>What the robot sees</span><span class="dot" id="d_robot"></span></button>
   <button data-tab="face"><span>Your face</span><span class="dot" id="d_face"></span></button>
   <button data-tab="memory"><span>Episodic memory</span><span class="dot" id="d_memory"></span></button>
   <button data-tab="story"><span>Why</span><span class="dot"></span></button>
-  <div class="foot"><b>Left cheek</b> fetch · <b>Right cheek</b> feed Skully · <b>Smile</b> let go · <b>Two smiles</b> home<br><br><span id="clock"></span></div>
+  <div class="foot"><b>Serve:</b> left cheek fetch, right cheek feed Skully, smile let go. <b>Two smiles</b> switch to Steer: cheeks turn the arm, smile grabs or lets go. <b>Three smiles</b> home.<br><br><span id="clock"></span></div>
 </nav>
 <main>
 <section id="robot" class="on">
@@ -360,6 +362,8 @@ async function tick(){
   $('log_empty').style.display=rows.length?'none':'';$('log_tag').textContent=rows.length?`${s.counts.lines} lines`:'';
   const rb=s.robot||{};const robotLive=rb.source==='box'||(rb.source==='file'&&rb.age<3);
   $('robot_tag').textContent=robotLive?'live':rb.source==='file'?`last picture ${fmtAge(rb.age)} old`:'robot offline';$('robot_tag').className='tag '+(robotLive?'ok':'warn');$('d_robot').className='dot '+(robotLive?'ok':'warn');
+  const md=s.mode;$('layer').textContent=md?`Layer: ${md.mode.toUpperCase()}`:'';
+  if(md){$('controls').innerHTML=md.controls.map(c=>`<tr><td class="g">${c[0]}</td><td class="f">${esc(c[1])}</td><td class="a">${esc(c[2])}</td></tr>`).join('');}
   const sk=s.skully||{};const checks=sk.checks||[];
   $('checks').innerHTML=(checks.length?checks:[{name:'seen',what:'the blue tape on Skully\'s nose is in view from home'},{name:'in reach',what:'530 to 800 mm from the base'},{name:'holding',what:'a cube is between the fingers'},{name:'re-found',what:'seen again from the hover above him'},{name:'path',what:'the planner finds a way in and out'}]).map(c=>`<tr><td class="${c.ok===true?'ok':c.ok===false?'no':'na'}">${c.ok===true?'&#10003;':c.ok===false?'&#10007;':'·'}</td><td class="name">${esc(c.name)}</td><td class="a">${esc(c.what)}</td></tr>`).join('');
   $('checks_tag').textContent=sk.t?(sk.fed?'fed, '+fmtAge(Date.now()/1000-sk.t)+' ago':sk.seen===false?'not seen, '+fmtAge(Date.now()/1000-sk.t)+' ago':(sk.dist?`Skully ${sk.dist.toFixed(0)} mm from the base, `:'')+fmtAge(Date.now()/1000-sk.t)+' ago'):'no attempt yet';

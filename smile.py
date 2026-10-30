@@ -122,7 +122,8 @@ def calibrate(cam=0, seconds=4.5):
     t0 = time.time(); results = {}; frames = []
     steps = [("rest", "RELAX. Straight face. Turn your head slowly left and right."), ("left", "Pull your LEFT cheek up and hold. Turn your head slowly."),
              ("right", "Pull your RIGHT cheek up and hold. Turn your head slowly."), ("both", "Full smile, both sides. Turn your head slowly."),
-             ("mouth", "Open your mouth. Turn your head slowly.")]
+             ("mouth", "Open your mouth. Turn your head slowly."),
+             ("other", "OTHER faces: talk, frown, raise your eyebrows, squint, look around. No smile.")]
     session = time.strftime("%Y%m%d-%H%M%S")
     def show(frame, title, lines, colour=(255, 255, 255)):
         cv2.imshow(win, card(cv2.flip(frame, 1), title, lines, colour)); cv2.waitKey(1)
@@ -180,38 +181,51 @@ def calibrate(cam=0, seconds=4.5):
     print(json.dumps({k: round(v, 3) for k, v in calib.items() if isinstance(v, float)}))
 
 
-INSTRUCTIONS = (
-    ("SERVED WITH A SMILE", None),
-    ("", None),
-    ("LEFT cheek up", "fetch the cube"),
-    ("RIGHT cheek up", "feed Skully"),
-    ("SMILE once", "let go"),
-    ("SMILE twice", "home (stop)"),
-    ("", None),
-    ("Skully eats only if he", None),
-    ("holds still and is in reach", None),
+INSTRUCTIONS = (        # shown when serve.py has not said which layer it is in
+    ("SERVED WITH A SMILE", None), ("", None),
+    ("LEFT cheek up", "fetch the cube"), ("RIGHT cheek up", "feed Skully"), ("SMILE once", "let go"), ("SMILE twice", "steer layer"),
+    ("SMILE 3 times", "home (stop)"),
 )
+MODE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "mode.json")
+_mode_cache = {"t": 0.0, "d": None}
+
+
+def current_mode():
+    """What serve.py says the layer is: {"mode", "since", "controls"} or None. Read at most twice a second."""
+    import json
+    now = time.time()
+    if now - _mode_cache["t"] > 0.5:
+        _mode_cache["t"] = now
+        try:
+            _mode_cache["d"] = json.load(open(MODE_FILE))
+        except (OSError, ValueError):
+            _mode_cache["d"] = None
+    return _mode_cache["d"]
 
 
 def draw_panel(frame, sc, up, group, thresholds):
-    """The instructions down the right side, the live scores as bars, the group being heard.
-    (Dropped by mistake in the calibration commit of 19:50; restored 23:10 with the mouth line added.)"""
+    """The layer the arm is in and its controls down the right side, the live scores as bars, the group being heard.
+    A layer switch in the last 2.5 s is announced in large type across the picture."""
     h, w = frame.shape[:2]
     pw = 360
     panel = frame.copy()
     cv2.rectangle(panel, (w - pw, 0), (w, h), (18, 18, 18), -1)
     frame = cv2.addWeighted(panel, 0.82, frame, 0.18, 0)
+    md = current_mode()
     y = 44
-    for left, right in INSTRUCTIONS:
-        if left == "SERVED WITH A SMILE":
-            cv2.putText(frame, left, (w - pw + 20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2)
-        elif left:
-            cv2.putText(frame, left, (w - pw + 20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (0, 200, 90) if right else (170, 170, 170), 1)
-            if right:
-                cv2.putText(frame, right, (w - pw + 190, y), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (235, 235, 235), 1)
+    cv2.putText(frame, "SERVED WITH A SMILE", (w - pw + 20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2); y += 44
+    if md:
+        colour = (0, 200, 90) if md["mode"] == "serve" else (0, 170, 255)
+        cv2.putText(frame, f"LAYER: {md['mode'].upper()}", (w - pw + 20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.9, colour, 2); y += 40
+        rows = [(f"{face.upper()}", what) for _, face, what in md["controls"]]
+    else:
+        cv2.putText(frame, "arm loop not running", (w - pw + 20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (120, 120, 120), 1); y += 34
+        rows = [(a, b) for a, b in INSTRUCTIONS[2:]]
+    for left, right in rows:
+        cv2.putText(frame, left, (w - pw + 20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (0, 200, 90), 1)
+        cv2.putText(frame, right, (w - pw + 180, y), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (235, 235, 235), 1)
         y += 30
-    # live bars: how far each side is toward its trigger
-    y += 10
+    y += 16
     for label, val, thr in (("left", sc[0] if sc else 0.0, thresholds[0]), ("right", sc[1] if sc else 0.0, thresholds[1])):
         cv2.putText(frame, f"{label} {val:.2f}", (w - pw + 20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
         x0, x1 = w - pw + 120, w - 30
@@ -223,6 +237,12 @@ def draw_panel(frame, sc, up, group, thresholds):
         y += 28
     heard = "".join(group) or ("holding " + up if up else "")
     cv2.putText(frame, heard, (w - pw + 20, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 200, 90), 2)
+    if md and time.time() - md.get("since", 0) < 2.5:
+        txt = f"{md['mode'].upper()} LAYER"
+        (tw, th), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 2.2, 4)
+        cx, cy = (w - pw) // 2, h // 2
+        cv2.rectangle(frame, (cx - tw // 2 - 24, cy - th - 24), (cx + tw // 2 + 24, cy + 24), (10, 10, 10), -1)
+        cv2.putText(frame, txt, (cx - tw // 2, cy), cv2.FONT_HERSHEY_SIMPLEX, 2.2, (0, 200, 90) if md["mode"] == "serve" else (0, 170, 255), 4)
     if not sc:
         cv2.putText(frame, "no face", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
     return frame
@@ -342,7 +362,7 @@ def main(window=True, cam=0):
                 if not counted and now - up_since >= MIN_HOLD_S:
                     group.append(up); last_event = now; counted = True
                     print(f"  {''.join(group)}", flush=True)
-                released = (label in ("rest", "mouth", None)) if model else (l < down and r < down)
+                released = (label in ("rest", "mouth", "other", None)) if model else (l < down and r < down)
                 if released and (not model or now - up_since > MIN_HOLD_S):
                     up = None; released_at = now
         if group and up is None and now - last_event > GROUP_S:

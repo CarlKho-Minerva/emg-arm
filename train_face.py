@@ -14,7 +14,7 @@ import random
 HERE = os.path.dirname(os.path.abspath(__file__))
 FRAMES = os.path.join(HERE, "data", "face_frames.jsonl")
 MODEL = os.path.join(HERE, "data", "face_model.json")
-LABELS = ("rest", "left", "right", "both", "mouth")
+LABELS = ("rest", "left", "right", "both", "mouth", "other")
 
 
 def load(all_sessions=False):
@@ -65,7 +65,8 @@ def predict(model, shapes, rest_margin=0.0):
     mx = max(logits); ex = [math.exp(v - mx) for v in logits]; tot = sum(ex)
     probs = {lab: e / tot for lab, e in zip(labs, ex)}
     best = max(probs, key=probs.get)
-    if best != "rest" and "rest" in probs and probs[best] - probs["rest"] < rest_margin:
+    quiet = max(probs.get("rest", 0.0), probs.get("other", 0.0))      # "other" = talking, frowning, eyebrows: not a command
+    if best not in ("rest", "other") and probs[best] - quiet < rest_margin:
         return "rest", probs
     return best, probs
 
