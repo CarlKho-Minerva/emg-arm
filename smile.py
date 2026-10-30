@@ -112,7 +112,7 @@ def card(frame, title, lines, colour=(255, 255, 255)):
     return frame
 
 
-def calibrate(cam=0, seconds=4.5):
+def calibrate(cam=0, seconds=10.0):
     """Measure Carl's own rest and gestures in the window, coach-style: one instruction at a time, a
     countdown, a bar, then a card with the numbers. Thresholds halfway between rest and the gesture."""
     import json, statistics
@@ -393,8 +393,9 @@ if __name__ == "__main__":
     ap.add_argument("--no-window", action="store_true")
     ap.add_argument("--cam", type=int, default=0)
     ap.add_argument("--calibrate", action="store_true", help="measure rest and each gesture, save the thresholds")
+    ap.add_argument("--seconds", type=float, default=10.0, help="seconds per calibration step (Carl, 30 Oct: 10 to 20)")
     a = ap.parse_args()
     if a.calibrate:
-        calibrate(cam=a.cam)
+        calibrate(cam=a.cam, seconds=a.seconds)
     else:
         main(window=not a.no_window, cam=a.cam)

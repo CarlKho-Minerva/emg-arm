@@ -100,15 +100,51 @@ async def pixel_to_plane(machine, intr, u, v, z_plane):
     return o.x + t * dx + cx, o.y + t * dy + cy, z_plane
 
 
+def blob_angle(bgr, colour, centre):
+    """The cube's edge direction in the picture, degrees, from the rotated box around the blob at `centre`."""
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    mask = None
+    for lo, hi in COLOURS[colour]:
+        m = cv2.inRange(hsv, np.array(lo), np.array(hi))
+        mask = m if mask is None else cv2.bitwise_or(mask, m)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    n, labels, stats, cents = cv2.connectedComponentsWithStats(mask)
+    best, bd = None, 1e9
+    for i in range(1, n):
+        d = math.hypot(cents[i][0] - centre[0], cents[i][1] - centre[1])
+        if d < bd:
+            best, bd = i, d
+    if best is None:
+        return None
+    pts = np.argwhere(labels == best)[:, ::-1].astype(np.float32)      # (x, y)
+    (_, _), (w, h), ang = cv2.minAreaRect(pts)
+    return float(ang)
+
+
 async def find_cube_close(machine, cam, intr, colour):
-    """The cube's centre from a close look: biggest blob of the colour, ray to the known top height."""
+    """The cube's centre from a close look: biggest blob of the colour, ray to the known top height.
+    Returns (world_centre, area, yaw_deg): yaw is the cube's turn about the vertical in the arm's frame,
+    reduced to (-45, 45] since a cube repeats every 90 degrees; None if it could not be measured."""
     jpeg, _ = await grab(cam, want_depth=False)
     bgr = cv2.imdecode(np.frombuffer(jpeg, "uint8"), cv2.IMREAD_COLOR)
     bl = blobs(bgr, colour)
     if not bl:
         return None
     area, (cu, cv_), box = bl[0]
-    return await pixel_to_plane(machine, intr, cu, cv_, CUBE_MM), area
+    centre = await pixel_to_plane(machine, intr, cu, cv_, CUBE_MM)
+    yaw = None
+    try:
+        ang = blob_angle(bgr, colour, (cu, cv_))
+        if ang is not None and centre is not None:
+            # the edge direction as a world direction: project a second pixel a little along the edge
+            du, dv = 25.0 * math.cos(math.radians(ang)), 25.0 * math.sin(math.radians(ang))
+            q = await pixel_to_plane(machine, intr, cu + du, cv_ + dv, CUBE_MM)
+            if q is not None:
+                yaw = math.degrees(math.atan2(q[1] - centre[1], q[0] - centre[0]))
+                yaw = (yaw + 45.0) % 90.0 - 45.0
+    except Exception:
+        yaw = None
+    return centre, area, yaw
 
 
 async def find_cubes(machine, cam, intr, colours=None):

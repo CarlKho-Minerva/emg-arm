@@ -23,6 +23,10 @@ from viam.proto.common import Pose, PoseInFrame
 from bottle import MAX_REACH, find_bottles
 from camgrab import grab
 from handme import Rig, StepTimeout, handover, hold_for_face, say, step
+
+
+class NoCube(Exception):
+    """No cube to pick: nothing in view or out of reach. Not retried (Carl, 30 Oct 14:43: it tried thrice with no cube there)."""
 from viamarm import connect
 
 ABOVE_MM = 120.0
@@ -44,6 +48,8 @@ CUBE_STAGES = (85.0, 76.0, 70.0)   # 70 is the floor: Carl eyeballed the fingert
                                    # unknown distance below the steered point, so go down in steps and stop at the first hold
 HELD_POS = 60.0        # (old rule, kept for the bottle path)
 HELD_MIN, HELD_MAX = 120.0, 700.0   # settled finger position for a 48 mm cube: well off both ends of the 0..850 range
+ALIGN_YAW = True       # turn the gripper to the cube's edges (from the close look's rotated box). Off: theta 0 as before.
+THETA_SIGN = 1.0       # +1 or -1: which way plan_to's theta turns relative to the cube's measured yaw. Flip after one wrong grasp.
 SOFT_SPEED = 800.0     # gripper closing speed while grasping (driver default 2000); gentler on the bottle
 
 
@@ -182,12 +188,13 @@ async def pick_cube_once(rig, colour, attempt):
         await step("gripper open", rig.gripper.open())
     found = await step(f"find {colour} cube", find_cubes(rig.machine, rig.cam, rig.intr, [colour]))
     if colour not in found:
-        await say(f"no {colour} cube seen from home"); return False
+        await say(f"no {colour} cube seen from home: put one on the table in view of the camera")
+        raise NoCube(f"no {colour} cube in view")
     (cx, cy, cz), area, box = found[colour]
     flat = math.hypot(cx, cy)
     if flat > CUBE_REACH:
         await say(f"{colour} cube seen but {flat:.0f} mm from the base, over the {CUBE_REACH:.0f} limit: slide the cubes toward the arm")
-        return False
+        raise NoCube(f"{colour} cube out of reach ({flat:.0f} mm)")
     await say(f"{colour} cube at x={cx:.0f} y={cy:.0f}, {flat:.0f} mm from the base (top read z={cz:.0f}; using the known height)")
     if not rig.live:
         await say(f"would go above it at z={CUBE_ABOVE:.0f}, then down through {CUBE_STAGES}, closing at each until held")
@@ -201,6 +208,7 @@ async def pick_cube_once(rig, colour, attempt):
     except Exception:
         pass
     held = False
+    yaw = 0.0             # the cube's turn about the vertical, degrees in (-45, 45]; the gripper follows it (Carl, 30 Oct: "roll it like a dice")
     look_area = 8000      # a cube's blob at the 16 cm hover (measured 8237 px); replaced by the real look
     looks = list(CUBE_LOOKS)
     for pass_n in range(1, CUBE_PASSES + 1):
@@ -218,7 +226,10 @@ async def pick_cube_once(rig, colour, attempt):
             if r is None or r[0] is None:
                 await say(f"   close look at z={hover:.0f}: cube not seen from here; keeping the last estimate")
                 continue
-            (nx, ny, _), area = r
+            (nx, ny, _), area = r[:2]
+            if ALIGN_YAW and len(r) > 2 and r[2] is not None:
+                yaw = r[2]
+                await say(f"   cube turned {yaw:+.0f} deg; the gripper will turn with it (THETA_SIGN {THETA_SIGN:+.0f})")
             look_area = area
             shift = math.hypot(nx - cx, ny - cy)
             await say(f"   close look at z={hover:.0f}: cube at x={nx:.0f} y={ny:.0f} (moved the estimate {shift:.0f} mm, blob {area} px)")
@@ -243,10 +254,10 @@ async def pick_cube_once(rig, colour, attempt):
             if err < SERVO_DONE:
                 break
             cx += SERVO_GAIN * ex; cy += SERVO_GAIN * ey
-        if not await plan_to(rig, cx, cy, CUBE_ABOVE, "above the cube, centred"):
+        if not await plan_to(rig, cx, cy, CUBE_ABOVE, f"above the cube, centred, turned {yaw:+.0f} deg", theta=THETA_SIGN * yaw):
             return False
         for z in CUBE_STAGES:
-            if not await plan_to(rig, cx, cy, z, f"down to z={z:.0f}"):
+            if not await plan_to(rig, cx, cy, z, f"down to z={z:.0f}", theta=THETA_SIGN * yaw):
                 break
             await step("gripper close", rig.gripper.grab())
             posn = await settled_fingers(rig)
@@ -267,14 +278,14 @@ async def pick_cube_once(rig, colour, attempt):
         await say("no hold after the passes; opening"); await rig.gripper.open()
         await plan_to(rig, cx, cy, CUBE_ABOVE, "back up")
         return False
-    await plan_to(rig, cx, cy, CUBE_ABOVE, "lift")
+    await plan_to(rig, cx, cy, CUBE_ABOVE, "lift", theta=THETA_SIGN * yaw)
     rig.last_grasp = (cx, cy)
     # the truthful check: after the lift, is the cube gone from its spot?
     await asyncio.sleep(0.4)
     # the truthful check: shift sideways and look. A cube on the table stays at the spot; a cube in the
     # hand moves with the gripper (straight above the spot both land on the same pixel, so that view lies)
     posn = await settled_fingers(rig)
-    await plan_to(rig, cx + SHIFT_MM, cy, CUBE_ABOVE, f"shift {SHIFT_MM:.0f} mm to check")
+    await plan_to(rig, cx + SHIFT_MM, cy, CUBE_ABOVE, f"shift {SHIFT_MM:.0f} mm to check", theta=THETA_SIGN * yaw)
     await asyncio.sleep(0.4)
     r = await step("look after the shift", find_cube_close(rig.machine, rig.cam, rig.intr, colour))
     on_table = in_hand = False
@@ -308,6 +319,11 @@ async def pick(rig, cube=None):
     for attempt in range(1, MAX_TRIES + 1):
         try:
             ok = await (pick_cube_once(rig, cube, attempt) if cube else pick_once(rig, attempt))
+        except NoCube as e:
+            await say(f"not retrying: {e}")
+            if rig.live:
+                await rig.greet.set_position(2)
+            return False
         except StepTimeout as e:
             await say(f"attempt {attempt} abandoned: {e} hung; stopping the arm and trying again")
             try:

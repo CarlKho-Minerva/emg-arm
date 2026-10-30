@@ -48,6 +48,84 @@ CONTROLS = [
 
 robot = {"jpeg": None, "t": 0.0, "source": "none", "error": ""}
 
+# ---- the processes the screen can start and stop (Carl, 30 Oct 14:43: "I don't want to run both smile.py and serve.py myself")
+import signal
+import subprocess
+import sys
+PY = os.path.join(HERE, ".venv", "bin", "python")
+PROGRAMS = {
+    "smile": {"label": "Face reader", "cmd": [PY, "smile.py", "--no-window"], "log": "smile.out"},
+    "serve": {"label": "Arm loop", "cmd": [PY, "serve.py", "--live", "--cube", os.environ.get("CUBE", "green")], "log": "serve.out"},
+    "view": {"label": "Wrist camera", "cmd": [PY, "view.py"], "log": "view.out"},
+}
+procs = {}
+plock = threading.Lock()
+
+
+def _alive(name):
+    pr = procs.get(name)
+    return pr is not None and pr.poll() is None
+
+
+def _others_running(name):
+    """Pids of the same program started elsewhere (a Terminal window), so the screen never runs two face readers."""
+    try:
+        out = subprocess.run(["pgrep", "-f", f"python {PROGRAMS[name]['cmd'][1]}"], capture_output=True, text=True).stdout.split()
+    except Exception:
+        return []
+    mine = procs.get(name).pid if _alive(name) else None
+    return [int(x) for x in out if x.isdigit() and int(x) != mine and int(x) != os.getpid()]
+
+
+def start(name):
+    with plock:
+        if _alive(name):
+            return "already running"
+        others = _others_running(name)
+        if others:
+            return f"already running elsewhere (pid {others[0]}); stop that window first"
+        env = dict(os.environ, GLOG_minloglevel="2", TF_CPP_MIN_LOG_LEVEL="2", PYTHONUNBUFFERED="1")
+        log = open(os.path.join(DATA, PROGRAMS[name]["log"]), "ab")
+        procs[name] = subprocess.Popen(PROGRAMS[name]["cmd"], cwd=HERE, stdout=log, stderr=subprocess.STDOUT, env=env)
+        return f"started pid {procs[name].pid}"
+
+
+def stop(name):
+    with plock:
+        pr = procs.get(name)
+        pids = ([pr.pid] if _alive(name) else []) + _others_running(name)
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGINT)
+            except ProcessLookupError:
+                pass
+        t0 = time.time()
+        while time.time() - t0 < 3 and any(_pid_alive(x) for x in pids):
+            time.sleep(0.1)
+        for pid in pids:
+            if _pid_alive(pid):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        return f"stopped {len(pids)}" if pids else "not running"
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(pid, 0); return True
+    except OSError:
+        return False
+
+
+def programs_status():
+    out = {}
+    for name, pg in PROGRAMS.items():
+        others = _others_running(name)
+        out[name] = {"label": pg["label"], "running": _alive(name) or bool(others), "pid": (procs[name].pid if _alive(name) else (others[0] if others else None)),
+                     "where": "screen" if _alive(name) else ("terminal" if others else None), "log": tail(os.path.join(DATA, pg["log"]), 2)}
+    return out
+
 
 def placeholder(text, sub=""):
     """A dark picture with a line of text, as SVG (no image library needed)."""
@@ -185,6 +263,7 @@ def state():
         "skully": read_json(os.path.join(DATA, "skully.json")),
         "smile_out": tail(os.path.join(DATA, "smile.out"), 4),
         "mode": read_json(os.path.join(DATA, "mode.json")),
+        "programs": programs_status(),
     }
 
 
@@ -202,7 +281,10 @@ nav button{all:unset;cursor:pointer;display:flex;align-items:center;justify-cont
 nav button:hover{background:var(--card)}nav button.on{background:var(--fg);color:var(--bg)}
 nav button .dot{width:8px;height:8px;border-radius:50%;background:var(--line)}nav button .dot.ok{background:var(--ok)}nav button .dot.warn{background:var(--warn)}
 nav button.on .dot.ok{background:var(--ok)}
-nav .foot{margin-top:auto;color:var(--mut);font-size:12px;line-height:1.4;padding:0 8px}
+.runbox{margin-top:auto;border-top:1px solid var(--line);padding-top:4px}
+.runrow{display:grid;grid-template-columns:10px 1fr auto auto;gap:6px;align-items:center;padding:3px 8px;font-size:13px}
+.rb{all:unset;cursor:pointer;font-size:11.5px;padding:3px 8px;border:1px solid var(--line);border-radius:6px;color:var(--fg)}.rb:hover{background:var(--card)}.rb.all{border-color:var(--ok);color:var(--ok)}
+nav .foot{color:var(--mut);font-size:12px;line-height:1.4;padding:0 8px}
 nav .foot b{color:var(--fg);font-weight:500}
 main{min-height:0;overflow:auto;padding:20px 28px 28px}
 section{display:none;flex-direction:column;gap:14px;min-height:100%}section.on{display:flex}
@@ -232,7 +314,13 @@ td.g{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;width:42px;color:va
 svg text{fill:var(--mut);font:11px -apple-system,Inter,system-ui,sans-serif}svg .ax{stroke:var(--line)}svg .pt{fill:var(--acc)}svg .pt.h{fill:none;stroke:var(--acc);stroke-width:1.5}
 svg .ok{fill:var(--ok)}svg .no{fill:var(--bad)}svg .na{fill:var(--mut)}
 .cap{color:var(--mut);font-size:12.5px;max-width:80ch;margin:4px 0 0}
-.story{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:22px;align-items:start}
+.cc{display:grid;grid-template-columns:1.2fr 1.2fr 1fr;gap:16px;align-items:start}
+.cc .pic{aspect-ratio:4/3;max-height:40vh}
+.cc .heard{padding:10px 0 6px}.cc .heard .big{font-size:44px;min-height:44px}.cc .heard .big.idle{font-size:30px}
+.paper{max-width:78ch}.paper h3{font-size:16px;font-weight:600;margin:18px 0 6px}.paper p{margin:0 0 10px;line-height:1.55}.paper .abs{border-left:2px solid var(--line);padding-left:14px;color:var(--fg)}
+.paper .fig{margin:12px 0 4px}.paper .cap b{color:var(--fg);font-weight:600}
+.story{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:26px;align-items:start}
+.refs{font-size:13px;color:var(--mut);line-height:1.5}.refs p{margin:0 0 8px}.refs a{color:var(--fg)}
 .story img{width:100%;border-radius:10px;border:1px solid var(--line);display:block}
 .story p{margin:0 0 12px;font-size:16px;line-height:1.55;max-width:60ch}
 .story .quiet{color:var(--mut);font-size:13.5px}
@@ -243,14 +331,50 @@ pre.log{margin:0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color
   <h1>Served With a Smile</h1>
   <div class="sub">Meet Skully. He's dead hungry.</div>
   <div class="sub" id="layer" style="color:var(--ok);font-weight:600"></div>
-  <button data-tab="robot" class="on"><span>What the robot sees</span><span class="dot" id="d_robot"></span></button>
+  <button data-tab="all" class="on"><span>Command centre</span><span class="dot" id="d_all"></span></button>
+  <button data-tab="robot"><span>What the robot sees</span><span class="dot" id="d_robot"></span></button>
   <button data-tab="face"><span>Your face</span><span class="dot" id="d_face"></span></button>
   <button data-tab="memory"><span>Episodic memory</span><span class="dot" id="d_memory"></span></button>
   <button data-tab="story"><span>Why</span><span class="dot"></span></button>
+  <div class="runbox">
+    <div class="k" style="margin:10px 8px 6px">Run</div>
+    <div class="runrow"><span id="p_smile_dot" class="dot"></span><span>Face reader</span><button class="rb" data-run="smile" data-act="start">Start</button><button class="rb" data-run="smile" data-act="stop">Stop</button></div>
+    <div class="runrow"><span id="p_serve_dot" class="dot"></span><span>Arm loop</span><button class="rb" data-run="serve" data-act="start">Start</button><button class="rb" data-run="serve" data-act="stop">Stop</button></div>
+    <div class="runrow"><span id="p_view_dot" class="dot"></span><span>Wrist camera</span><button class="rb" data-run="view" data-act="start">Start</button><button class="rb" data-run="view" data-act="stop">Stop</button></div>
+    <div class="runrow"><span class="dot" style="background:none"></span><span></span><button class="rb all" data-run="all" data-act="start">Start all</button><button class="rb" data-run="all" data-act="stop">Stop all</button></div>
+    <div class="cap" id="run_msg" style="margin:4px 8px 0;font-size:11.5px"></div>
+  </div>
   <div class="foot"><b>Serve:</b> left cheek fetch, right cheek feed Skully, smile let go. <b>Two smiles</b> switch to Steer: cheeks turn the arm, smile grabs or lets go. <b>Three smiles</b> home.<br><br><span id="clock"></span></div>
 </nav>
 <main>
-<section id="robot" class="on">
+<section id="all" class="on">
+  <div class="k"><span>Command centre</span><span class="tag" id="all_layer"></span></div>
+  <div class="cc">
+    <div>
+      <div class="k"><span>Wrist camera</span><span class="tag" id="robot_tag2">-</span></div>
+      <div class="pic"><img id="robot2" src="/robot.jpg" alt="robot camera"></div>
+      <div class="card checks" style="margin-top:10px"><div class="k"><span>What the feed requires</span><span class="tag" id="checks_tag2"></span></div><table><tbody id="checks2"></tbody></table></div>
+    </div>
+    <div>
+      <div class="k"><span>Laptop camera</span><span class="tag" id="face_tag2">-</span></div>
+      <div class="pic"><img id="face2" src="/face.jpg" alt="your face"></div>
+      <div class="card heard" style="margin-top:10px"><div class="big idle" id="heard2">...</div><div class="sub" id="heard_sub2"></div></div>
+      <div class="card" style="margin-top:10px"><div class="k">This layer</div><table><tbody id="controls2"></tbody></table></div>
+    </div>
+    <div>
+      <div class="k"><span>Episodic memory</span><span class="tag" id="mongo_tag2">-</span></div>
+      <div class="tiles" style="grid-template-columns:repeat(2,1fr)">
+        <div class="tile"><div class="n" id="t2_total">0</div><div class="l">episodes</div></div>
+        <div class="tile"><div class="n" id="t2_today">0</div><div class="l">live today</div></div>
+        <div class="tile"><div class="n" id="t2_fetch">0/0</div><div class="l">fetch ok</div></div>
+        <div class="tile"><div class="n" id="t2_feed">0/0</div><div class="l">Skully fed</div></div>
+      </div>
+      <div class="card" style="margin-top:10px"><div class="k">What it did, as it wrote it</div><table><tbody id="rows2"></tbody></table></div>
+      <div class="card" style="margin-top:10px"><div class="k">The last episodes</div><table><tbody id="eps2"></tbody></table></div>
+    </div>
+  </div>
+</section>
+<section id="robot">
   <div><h2>What the robot sees</h2><p class="lead">The wrist camera, as the arm sees it, and every line the arm wrote as it acted. The feed runs only when five things are true; each is checked in order and shown here.</p></div>
   <div class="row">
     <div>
@@ -284,7 +408,12 @@ pre.log{margin:0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color
   </div>
 </section>
 <section id="memory">
-  <div><h2>Episodic memory</h2><p class="lead">One document per command in MongoDB Atlas: the gesture, what each camera saw, which checks passed, how it ended and how long it took. Thursday's picks, follower runs and handovers were backfilled with their real timestamps. Nothing here is typed by hand.</p></div>
+  <div class="paper">
+    <h2>What a Robot Remembers When It Feeds a Skull</h2>
+    <p class="cap">Carl Kho, Somach Systems. Viam x MongoDB Robot Hackathon, San Francisco, 29 to 30 October 2026. Every number below is read from the database at the moment you look at it.</p>
+    <h3>Abstract</h3>
+    <p class="abs">A robot that acts on a facial gesture has to answer a plain question afterwards: what did it see, what did it decide, and did it work. We store one document per command in MongoDB Atlas: the gesture, what each camera saw, which safety checks passed, the outcome and the duration. Thursday's picks, hand-following runs and handovers were imported with their original timestamps and marked as imported, so the record covers the whole build and not only the demo. Below, the counts, the follower's tracking error run by run, and every episode on a timeline.</p>
+  </div>
   <div class="k"><span>MongoDB</span><span class="tag" id="mongo_tag">-</span></div>
   <div class="tiles">
     <div class="tile"><div class="n" id="t_total">0</div><div class="l">episodes</div></div>
@@ -293,13 +422,22 @@ pre.log{margin:0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color
     <div class="tile"><div class="n" id="t_refused">0</div><div class="l">feeds refused</div></div>
     <div class="tile"><div class="n" id="t_today">0</div><div class="l">live today</div></div>
   </div>
-  <div class="row">
-    <div class="card"><div class="k">The follower's tracking error, run by run</div><div id="c_follow"></div>
-      <p class="cap">Forty 30-second runs on 29 October, one panel per kind of hand movement. Each dot is a run; its height is the typical distance of the hand from the centre of the picture (RMS, as a fraction of the frame; lower is better). Hollow dots are the held-out runs the controller was never tuned on. These runs chose the gains in the simulator: the kept setting scored -0.038 held out, the runner-up -0.066.</p></div>
-    <div class="card"><div class="k">Every episode, in time</div><div id="c_time"></div>
-      <p class="cap">Each mark is one episode at the minute it started, grouped by what the arm was asked to do. A filled green mark ended as intended; red did not; grey has no outcome on disk (a recording with no verdict, or a practice round whose grip check was later found untrustworthy). Hover for the reason.</p></div>
+  <div class="paper">
+    <h3>1. Method</h3>
+    <p>The face reader writes a named event to a file; the arm loop reads it and starts one behaviour. The behaviour opens an episode when it starts and closes it when it ends, with a reason in words. The record is written to a local file first and to Atlas on the next successful connection, so a dropped network loses nothing and a record never exists in one place without the other for long. Outcomes are recorded only where the program could measure one: a cube proven in the gripper by the sideways shift, a feed completed, a refusal with its cause. Where the day's logs carried no verdict, the field is left empty rather than guessed.</p>
+    <h3>2. Results</h3>
   </div>
-  <div class="card"><div class="k"><span>The last episodes</span><span class="tag" id="eps_tag"></span></div><table><tbody id="eps"></tbody></table><p class="cap" id="mongo"></p></div>
+  <div class="row">
+    <div class="card"><div class="k">Figure 1. The follower's tracking error, run by run</div><div id="c_follow"></div>
+      <p class="cap"><b>Figure 1.</b> Forty 30-second runs on 29 October, one panel per kind of hand movement. Each dot is a run; its height is the typical distance of the hand from the centre of the picture (root mean square, as a fraction of the frame; lower is better). Hollow dots are held-out runs the controller was never tuned on. These runs chose the gains in a simulator that replays them: the kept setting scored -0.038 held out, the runner-up -0.066.</p></div>
+    <div class="card"><div class="k">Figure 2. Every episode, in time</div><div id="c_time"></div>
+      <p class="cap"><b>Figure 2.</b> Each mark is one episode at the minute it started, grouped by what the arm was asked to do. A filled green mark ended as intended; a red diamond did not; grey has no outcome on disk (a recording with no verdict, or a practice round whose grip check was later found untrustworthy). Hover for the reason.</p></div>
+  </div>
+  <div class="card"><div class="k"><span>Table 1. The last episodes</span><span class="tag" id="eps_tag"></span></div><table><tbody id="eps"></tbody></table><p class="cap" id="mongo"></p></div>
+  <div class="paper">
+    <h3>3. What this does and does not show</h3>
+    <p>It shows that every action the arm took today is accounted for, with its cause, and that Thursday's tuning data is the same kind of record as today's demo. It does not show a learned policy: the behaviours are written by hand. The episodes are what a learned version would be trained on and judged against, and the same records are where a comparison of the camera input against the muscle-signal input would be made, gesture by gesture, on detection rate, latency and false triggers.</p>
+  </div>
 </section>
 <section id="story">
   <div><h2>Why a smile</h2></div>
@@ -310,6 +448,11 @@ pre.log{margin:0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color
       <p>The face usually still works. A half-smile is a decision. This robot takes the decision from the face and does the movement itself.</p>
       <p>Skully stands in for the person while the feed is tested. The next input is the electrical signal of the facial muscles, read by two pads on the cheeks, for a face that barely moves. The pads and the board are on the table; the arm side does not change.</p>
       <p class="quiet">Stock photograph; the person shown is not a patient of this project and no diagnosis is implied. Skully is a Halloween skull.</p>
+      <div class="refs">
+        <p><b>What others have shown.</b> A hands-free feeding interface driven by eye and head movements, with mouth movements as the command, was tested in 2022 with four able-bodied participants and one person with a spinal cord injury: 89.1 percent of bites succeeded, 31.4 s per item, and the participant with the injury rated usability 90 of 100 (Schultz, Slifkin, Yu and Schearer, IEEE ICORR 2022, <a href="https://doi.org/10.1109/ICORR55369.2022.9896535">doi:10.1109/ICORR55369.2022.9896535</a>).</p>
+        <p>Taking a feeding robot out of the lab, a 2025 study with two co-designers with motor impairments, five participants eating in a cafeteria, office or meeting room, and one person using it at home for ten meals, found that the unexpected situations of ordinary life are the central problem, and that users get through them when the system gives them control (Nanavati et al., ACM/IEEE HRI 2025, <a href="https://hcrlab.cs.washington.edu/publications/nanavati2025lessons">hcrlab.cs.washington.edu</a>).</p>
+        <p>This prototype takes the control point from both: the person issues the command, the robot checks before it acts and says why when it refuses. It stops at the mouth of a skull; feeding a person needs force limits, a breakaway utensil and swallowing safety that are not built here.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -321,7 +464,8 @@ const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt
 document.getElementById('controls').innerHTML=CONTROLS.map(c=>c[1]==null?`<tr><td class="a" colspan="3" style="padding-top:8px;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em">${c[0]}</td></tr>`:`<tr><td class="g">${c[0]}</td><td class="f">${c[1]}</td><td class="a">${c[2]}</td></tr>`).join('');
 document.querySelectorAll('nav button[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button[data-tab]').forEach(x=>x.classList.toggle('on',x===b));document.querySelectorAll('main section').forEach(s=>s.classList.toggle('on',s.id===b.dataset.tab));try{localStorage.setItem('tab',b.dataset.tab)}catch(e){}});
 try{const t=localStorage.getItem('tab');if(t)document.querySelector(`nav button[data-tab="${t}"]`)?.click();}catch(e){}
-document.addEventListener('keydown',e=>{const m={'1':'robot','2':'face','3':'memory','4':'story'};if(m[e.key])document.querySelector(`nav button[data-tab="${m[e.key]}"]`).click();});
+document.querySelectorAll('.rb').forEach(b=>b.onclick=async()=>{b.disabled=true;try{const r=await (await fetch(`/run?what=${b.dataset.run}&action=${b.dataset.act}`,{method:'POST'})).json();$('run_msg').textContent=Object.entries(r).map(([k,v])=>`${k}: ${v}`).join(' · ');}catch(e){$('run_msg').textContent='no answer from the screen server';}b.disabled=false;});
+document.addEventListener('keydown',e=>{const m={'0':'all','1':'robot','2':'face','3':'memory','4':'story'};if(m[e.key])document.querySelector(`nav button[data-tab="${m[e.key]}"]`).click();});
 function bar(name,val,thr){const b=$('b_'+name),t=$('t_'+name),v=$('v_'+name);const have=typeof val==='number';b.style.width=have?(Math.min(val,1)*100)+'%':'0';b.className=(have&&typeof thr==='number'&&val>=thr)?'on':'';t.style.display=typeof thr==='number'?'':'none';if(typeof thr==='number')t.style.left=(Math.min(thr,1)*100)+'%';v.textContent=have?val.toFixed(2):'-';}
 function fmtAge(a){if(a==null)return '?';if(a<60)return a.toFixed(0)+' s';if(a<3600)return (a/60).toFixed(0)+' min';return (a/3600).toFixed(1)+' h';}
 function wordsOf(g){const w={L:'left cheek',R:'right cheek',B:'full smile',M:'mouth open'};return g.split('').map(ch=>w[ch]||ch).join(', ');}
@@ -382,10 +526,22 @@ async function tick(){
   $('mongo').textContent=`${mg.db||''}.${mg.collection||''}. The file data/serve_episodes.jsonl is written first; every unsynced document goes up on the next connection.`;
   const last=ep.last||[];$('eps_tag').textContent=`${ep.live||0} live today, ${ep.backfill||0} backfilled`;
   $('eps').innerHTML=last.map(e=>`<tr><td class="t">${e.t_start?new Date(e.t_start*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}):''}</td><td class="${e.ok===true?'ok':e.ok===false?'no':'na'}">${e.ok===true?'&#10003;':e.ok===false?'&#10007;':'?'}</td><td class="f">${esc(e.kind)}</td><td class="g">${esc(e.trigger)}</td><td class="a">${esc(e.reason)}${e.duration_s?` (${e.duration_s} s)`:''}${e.source&&e.source!=='live'?` <i>${esc(e.source)}</i>`:''}</td></tr>`).join('');
+  const pg=s.programs||{};for(const n of ['smile','serve','view']){const d=$('p_'+n+'_dot');if(d)d.className='dot '+(pg[n]&&pg[n].running?'ok':'warn');}
+  // the command centre mirrors
+  $('robot_tag2').textContent=$('robot_tag').textContent;$('robot_tag2').className=$('robot_tag').className;
+  $('face_tag2').textContent=$('face_tag').textContent;$('face_tag2').className=$('face_tag').className;
+  $('checks2').innerHTML=$('checks').innerHTML;$('checks_tag2').textContent=$('checks_tag').textContent;
+  $('heard2').textContent=h.textContent;$('heard2').className=h.className;$('heard_sub2').textContent=$('heard_sub').textContent;
+  $('controls2').innerHTML=$('controls').innerHTML;$('all_layer').textContent=md?`layer ${md.mode.toUpperCase()}`:'arm loop not running';$('all_layer').className='tag '+(md?'ok':'warn');
+  $('mongo_tag2').textContent=$('mongo_tag').textContent;$('mongo_tag2').className=$('mongo_tag').className;
+  $('t2_total').textContent=ep.total||0;$('t2_today').textContent=ep.live||0;$('t2_fetch').textContent=$('t_fetch').textContent;$('t2_feed').textContent=$('t_feed').textContent;
+  $('rows2').innerHTML=rows.slice(-6).map(r=>`<tr><td class="t">${r.time}</td><td class="f">${esc(r.face)}</td><td class="a">${esc(r.action)}</td></tr>`).join('');
+  $('eps2').innerHTML=last.slice(0,5).map(e=>`<tr><td class="t">${e.t_start?new Date(e.t_start*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''}</td><td class="${e.ok===true?'ok':e.ok===false?'no':'na'}">${e.ok===true?'&#10003;':e.ok===false?'&#10007;':'?'}</td><td class="f">${esc(e.kind)}</td><td class="a">${esc(e.reason)}</td></tr>`).join('');
+  $('d_all').className='dot '+((robotLive&&fresh&&mg.ok)?'ok':'warn');
   const sig=`${ep.total}|${(ep.follow_runs||[]).length}`;if(sig!==lastSig){lastSig=sig;$('c_follow').innerHTML=followChart(ep.follow_runs||[]);$('c_time').innerHTML=timeChart(ep.timeline||[]);}
 }
 function swap(id,url){const img=$(id);const n=new Image();n.onload=()=>{img.src=n.src;};n.src=url+'?'+Date.now();}
-setInterval(()=>swap('robot','/robot.jpg'),150);setInterval(()=>swap('face','/face.jpg'),120);setInterval(tick,300);tick();
+setInterval(()=>{swap('robot','/robot.jpg');swap('robot2','/robot.jpg')},150);setInterval(()=>{swap('face','/face.jpg');swap('face2','/face.jpg')},120);setInterval(tick,300);tick();
 setInterval(()=>{$('clock').textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});},1000);
 </script></body></html>"""
 
@@ -404,6 +560,21 @@ class H(BaseHTTPRequestHandler):
             self.send_header(k, v)
         self.end_headers()
         self.wfile.write(b)
+
+    def do_POST(self):
+        import urllib.parse
+        path, _, qs = self.path.partition("?")
+        q = urllib.parse.parse_qs(qs)
+        if path == "/run":
+            name, action = q.get("what", [""])[0], q.get("action", [""])[0]
+            if name == "all":
+                names = ["view", "smile", "serve"] if action == "start" else ["serve", "smile"]
+            else:
+                names = [name]
+            res = {n: (start(n) if action == "start" else stop(n)) for n in names if n in PROGRAMS}
+            self._send(json.dumps(res))
+        else:
+            self.send_response(404); self.send_header("Content-Length", "0"); self.end_headers()
 
     def do_GET(self):
         path = self.path.split("?", 1)[0]
