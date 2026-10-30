@@ -25,8 +25,8 @@ MODEL = os.path.expanduser("~/.cache/face_landmarker.task")
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/"
              "float16/1/face_landmarker.task")
 LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "face.log")
-UP, DOWN = 0.45, 0.25      # a corner counts as raised above UP, released below DOWN
-SIDE_GAP = 0.20            # one side must beat the other by this to be a half-smile; closer = both
+UP, DOWN = 0.35, 0.20      # a side counts as pulled above UP, released below DOWN
+SIDE_GAP = 0.15            # one side must beat the other by this to be one-sided; closer = both
 GROUP_S = 0.8              # events within this are one group; quiet this long ends the group
 MIN_HOLD_S = 0.08          # a corner must stay up this long (one blink of noise is not a smile)
 
@@ -40,11 +40,18 @@ def detector():
     return vision.FaceLandmarker.create_from_options(opts)
 
 
+SIDE_SHAPES = ("mouthSmile{}", "cheekSquint{}", "mouth{}", "mouthPress{}", "mouthDimple{}")   # the cheek thing: any one-sided pull
+
+
 def smile_scores(result):
+    """(left, right): the strongest one-sided signal on each side. A smirk, a cheek squint, the mouth
+    pulled to one side, a pressed corner, a dimple all count; B needs both sides up together."""
     if not result.face_blendshapes:
         return None
     d = {b.category_name: b.score for b in result.face_blendshapes[0]}
-    return d.get("mouthSmileLeft", 0.0), d.get("mouthSmileRight", 0.0)
+    left = max(d.get(n.format("Left"), 0.0) for n in SIDE_SHAPES)
+    right = max(d.get(n.format("Right"), 0.0) for n in SIDE_SHAPES)
+    return left, right
 
 
 def write_group(group):
