@@ -29,7 +29,7 @@ UP, DOWN = 0.18, 0.10      # a side counts as pulled above UP, released below DO
 SIDE_GAP = 0.10            # one side must beat the other by this to be one-sided; closer = both
 GROUP_S = 0.9              # smiles within this are one group (B, BB, BBB); quiet this long ends it. Cheeks never wait for this.
 MIN_HOLD_S = 0.08          # a smile must stay up this long (one blink of noise is not a smile)
-CHEEK_HOLD_S = 0.25        # a cheek must stay up this long: a quick asymmetry while moving or talking read as R (24 false R in 8 min, 30 Oct 15:13)
+CHEEK_HOLD_S = 0.5         # a cheek must stay up this long: a quick asymmetry while moving or talking read as R (24 false R in 8 min, 30 Oct 15:13)
 CHEEK_REPEAT_S = 1.5       # the same cheek does not fire twice within this
 YAW_MAX = 0.4              # head turned more than this (nose offset over eye distance) and a cheek is not read: one side is foreshortened
 REFRACTORY_S = 0.2         # after a cheek release, nothing new counts for this long (a relaxing cheek crosses the other side's line)
