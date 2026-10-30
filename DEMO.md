@@ -274,3 +274,24 @@ written here. Thank you."
 - Repo: https://github.com/CarlKho-Minerva/emg-arm
 - Disclosure: the Cerelog EMG driver (silent-speech-cerelog) predates the event and is the next input; it is
   not driving the arm today.
+
+
+## The run-through, 30 Oct 15:00 (what is actually built; use this one)
+
+Screen: http://localhost:8790, Command centre tab, Focus on (press f). Dashboard sidebar: Start all. Arm at greet.
+Cubes within 70 cm of the base. Skully in your hand, blue tape toward the arm's camera.
+
+| you | the arm | say |
+|---|---|---|
+| "Meet Skully. He's dead hungry." | at greet, looking at you | "Jokes aside: for someone with a cervical spinal cord injury the arms are paralysed and the face still works. This asks whether a half-smile is enough to be fed." |
+| left cheek | home, finds the cube, hovers, turns to the cube's angle, picks, shifts sideways to prove the grip, back to greet | "That is one gesture. The arm found the cube by colour, turned its fingers to the cube's angle, and checked its own grip by moving and looking." |
+| hold Skully up, tape to the camera, still | the camera follows the tape; when he is still a second, the cube comes to his mouth and holds four seconds, then back to greet | "The robot follows the tape on his nose with the same controller that tracked my hand yesterday. It only moves in once he holds still." |
+| right cheek (when he is still) | the feed above | "Bon appetit, Skully." |
+| full smile | lets go | |
+| two smiles, then hold a cheek | layer STEER, pans while held | "Two smiles change layer. Now a held cheek steers the arm, mirrored for me, because the arm faces me." |
+| three smiles | home, gripper open, layer SERVE | "Three smiles is the stop." |
+| point at the screen | episodes count up in Atlas | "Every command is one record: gesture, what each camera saw, the checks, the outcome. Thursday's runs are in there too." |
+| hold up the EMG board | | "Next input: the muscle signal from two pads on the cheeks, for a face that barely moves. Same events, same file, the arm does not change." |
+
+If the fetch says the cube is out of reach, slide the cubes toward the arm and left cheek again. If Skully is not followed,
+bring him closer to the camera (40 to 60 cm) and keep the tape facing it. Three smiles at any time brings everything home.
