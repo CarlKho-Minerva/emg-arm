@@ -150,3 +150,9 @@ Written by the sEMG child thread on this Mac (forge-m5-48). Times are PT.
   live.events(args): ...` yields dicts with `state` in ARMED / CLENCH / RELEASE.
 - Not yet done: noise floor on the real board, the 12-trial on-skin block, the activation table,
   the live loop on the real board. Each gets its own dated line below when it happens.
+- **16:40 n1 lab page published.** Entry `silent-speech-clench-night` in the n1 lab (OpenHost app
+  `n1`, built from `n1-lab/private/build_content.py` on the 128, shipped with `tools/push.sh push`).
+  Source page: `silent-speech-cerelog/protocol/study01/CLENCH_NIGHT.md` (commit 306a3ad, pushed to
+  GitHub, pulled on the 128). `lead-figure.html` is attached to the entry as a copy
+  (`n1-lab/private/attachments/ssc_lead_figure.html`); the hackathon copy is untouched. Results get
+  appended to the page as dated lines, then re-pushed the same way.
