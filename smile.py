@@ -29,7 +29,8 @@ UP, DOWN = 0.18, 0.10      # a side counts as pulled above UP, released below DO
 SIDE_GAP = 0.10            # one side must beat the other by this to be one-sided; closer = both
 GROUP_S = 0.5              # smiles within this are one group (B, BB, BBB); quiet this long ends it (0.8 felt slow, Carl 30 Oct 15:00)
 MIN_HOLD_S = 0.08          # a corner must stay up this long (one blink of noise is not a smile)
-REFRACTORY_S = 0.2         # after a release, nothing new counts for this long (a relaxing cheek crosses the other side's line)
+REFRACTORY_S = 0.2         # after a cheek release, nothing new counts for this long (a relaxing cheek crosses the other side's line)
+REFRACTORY_B_S = 0.5       # after a SMILE release: a smile that flickers off and on read as BB and flipped the layer (30 Oct 15:05)
 
 
 def detector():
@@ -309,6 +310,7 @@ def main(window=True, cam=0):
     det = detector()
     cap = open_camera(cam)
     up = None            # the event currently being held: "L", "R", "B" or None
+    last_up = None
     released_at = 0.0
     up_since = 0.0
     counted = False
@@ -349,7 +351,7 @@ def main(window=True, cam=0):
             l, r = sc
             # after the mirror, the picture's left is YOUR left, and the model's "Left" is the picture's left
             if up is None:
-                if model and label in ("left", "right", "both") and now - released_at > REFRACTORY_S:
+                if model and label in ("left", "right", "both") and now - released_at > (REFRACTORY_B_S if (label == "both" or last_up == "B") else REFRACTORY_S):
                     up = {"left": "L", "right": "R", "both": "B"}[label]
                     up_since = now; counted = False
                 elif not model and (l > up_l or r > up_r) and now - released_at > REFRACTORY_S:
@@ -371,7 +373,7 @@ def main(window=True, cam=0):
                         print(f"  {''.join(group)}", flush=True)
                 released = (label in ("rest", "mouth", "other", None)) if model else (l < down and r < down)
                 if released and (not model or now - up_since > MIN_HOLD_S):
-                    up = None; released_at = now
+                    last_up = up; up = None; released_at = now
         if group and up is None and now - last_event > GROUP_S:
             g = "".join(group)
             write_group(g)

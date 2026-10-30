@@ -44,7 +44,7 @@ FACE_STATUS = os.path.join(HERE, "data", "face_status.json")
 STEER_SIGN = {"L": -1.0, "R": +1.0}
 
 MODES = {
-    "serve": [("L", "left cheek", "fetch the cube"), ("R", "right cheek", "feed Skully (hold him up, tape to the camera)"), ("B", "one smile", "let go"),
+    "serve": [("L", "left cheek", "fetch the cube"), ("R", "right cheek", "feed Skully: follows him; still = cube to the mouth; smile lets go"), ("B", "one smile", "let go"),
               ("BB", "two smiles", "to STEER"), ("BBB", "three smiles", "home (stop)")],
     "steer": [("L", "hold left cheek", "pan to your left while held"), ("R", "hold right cheek", "pan to your right while held"),
               ("B", "one smile", "grab / let go"), ("BB", "two smiles", "to SERVE"), ("BBB", "three smiles", "home (stop)")],
@@ -188,7 +188,7 @@ async def main(live, cube, face_feed):
                             continue
                         if SKULLY_MODE == "held":
                             fed = await feed_held(rig)
-                            why = "cube brought to the mouth and held" if fed else "Skully not seen still; cube kept"
+                            why = "cube brought to the mouth; smile let go" if fed else "Skully not seen still; cube kept"
                             log(g, f"feed Skully (held): {why}")
                             ep.end(fed, why, mode_skully="held")
                         else:

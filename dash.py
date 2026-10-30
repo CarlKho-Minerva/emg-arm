@@ -241,6 +241,18 @@ def read_json(path):
         return None
 
 
+def script_text():
+    """The three-minute script from DEMO.md, between its heading and the next heading."""
+    try:
+        md = open(os.path.join(HERE, "DEMO.md")).read()
+        i = md.index("### Three minutes, spoken")
+        j = md.index("\n### ", i + 10)
+        body = md[i:j].split("\n", 1)[1].strip()
+        return [para.replace("\n", " ") for para in body.split("\n\n") if para.strip()]
+    except (OSError, ValueError):
+        return []
+
+
 def episode_stats():
     try:
         import episodes
@@ -279,6 +291,7 @@ def state():
         "smile_out": tail(os.path.join(DATA, "smile.out"), 4),
         "mode": read_json(os.path.join(DATA, "mode.json")),
         "programs": programs_status(),
+        "script": script_text(),
     }
 
 
@@ -454,6 +467,7 @@ pre.log{margin:0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color
       <p>The face usually still works. A half-smile is a decision. This robot takes the decision from the face and does the movement itself.</p>
       <p>Skully stands in for the person while the feed is tested. The next input is the electrical signal of the facial muscles, read by two pads on the cheeks, for a face that barely moves. The pads and the board are on the table; the arm side does not change.</p>
       <p class="quiet">Stock photograph; the person shown is not a patient of this project and no diagnosis is implied. Skully is a Halloween skull.</p>
+      <div class="card" style="margin:0 0 14px"><div class="k">The three minutes</div><div id="script" class="refs" style="color:var(--fg)"></div></div>
       <div class="refs">
         <p><b>What others have shown.</b> A hands-free feeding interface driven by eye and head movements, with mouth movements as the command, was tested in 2022 with four able-bodied participants and one person with a spinal cord injury: 89.1 percent of bites succeeded, 31.4 s per item, and the participant with the injury rated usability 90 of 100 (Schultz, Slifkin, Yu and Schearer, IEEE ICORR 2022, <a href="https://doi.org/10.1109/ICORR55369.2022.9896535">doi:10.1109/ICORR55369.2022.9896535</a>).</p>
         <p>Taking a feeding robot out of the lab, a 2025 study with two co-designers with motor impairments, five participants eating in a cafeteria, office or meeting room, and one person using it at home for ten meals, found that the unexpected situations of ordinary life are the central problem, and that users get through them when the system gives them control (Nanavati et al., ACM/IEEE HRI 2025, <a href="https://hcrlab.cs.washington.edu/publications/nanavati2025lessons">hcrlab.cs.washington.edu</a>).</p>
@@ -534,6 +548,7 @@ async function tick(){
   $('mongo').textContent=`${mg.db||''}.${mg.collection||''}. The file data/serve_episodes.jsonl is written first; every unsynced document goes up on the next connection.`;
   const last=ep.last||[];$('eps_tag').textContent=`${ep.live||0} live today, ${ep.backfill||0} backfilled`;
   $('eps').innerHTML=last.map(e=>`<tr><td class="t">${e.t_start?new Date(e.t_start*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}):''}</td><td class="${e.ok===true?'ok':e.ok===false?'no':'na'}">${e.ok===true?'&#10003;':e.ok===false?'&#10007;':'?'}</td><td class="f">${esc(e.kind)}</td><td class="g">${esc(e.trigger)}</td><td class="a">${esc(e.reason)}${e.duration_s?` (${e.duration_s} s)`:''}${e.source&&e.source!=='live'?` <i>${esc(e.source)}</i>`:''}</td></tr>`).join('');
+  if(s.script&&$('script').childElementCount!==s.script.length)$('script').innerHTML=s.script.map(p=>`<p>${esc(p)}</p>`).join('');
   const pg=s.programs||{};for(const n of ['smile','serve','view']){const d=$('p_'+n+'_dot');if(d)d.className='dot '+(pg[n]&&pg[n].running?'ok':'warn');}
   // the command centre mirrors
   $('robot_tag2').textContent=$('robot_tag').textContent;$('robot_tag2').className=$('robot_tag').className;
