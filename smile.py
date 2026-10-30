@@ -66,36 +66,62 @@ GESTURES = (("rest", "relax your face"), ("left", "pull your LEFT cheek up (a sm
             ("both", "full smile, both sides"), ("mouth", "open your mouth"))
 
 
+def card(frame, title, lines, colour=(255, 255, 255)):
+    """A dark card over the picture with a title and lines of text."""
+    h, w = frame.shape[:2]
+    panel = frame.copy()
+    cv2.rectangle(panel, (0, 0), (w, h), (10, 10, 10), -1)
+    frame = cv2.addWeighted(panel, 0.78, frame, 0.22, 0)
+    cv2.putText(frame, title, (40, 70), cv2.FONT_HERSHEY_SIMPLEX, 1.4, colour, 3)
+    y = 130
+    for line in lines:
+        cv2.putText(frame, line, (40, y), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (230, 230, 230), 2)
+        y += 40
+    return frame
+
+
 def calibrate(cam=0, seconds=3.0):
-    """Measure Carl's own rest and gestures, set the thresholds halfway between, save them."""
+    """Measure Carl's own rest and gestures in the window, coach-style: one instruction at a time, a
+    countdown, a bar, then a card with the numbers. Thresholds halfway between rest and the gesture."""
     import json, statistics
     det = detector()
     cap = cv2.VideoCapture(cam)
     if not cap.isOpened():
         raise SystemExit("no camera")
+    win = "Served With a Smile: calibration"
     t0 = time.time(); results = {}
-    for name, instruction in GESTURES:
-        print(f"\n{instruction.upper()} for {seconds:.0f} s, starting in 2...", flush=True); time.sleep(2)
+    steps = [("rest", "RELAX. Straight face."), ("left", "Pull your LEFT cheek up. A smirk."), ("right", "Pull your RIGHT cheek up."),
+             ("both", "Full smile, both sides."), ("mouth", "Open your mouth.")]
+    def show(frame, title, lines, colour=(255, 255, 255)):
+        cv2.imshow(win, card(cv2.flip(frame, 1), title, lines, colour)); cv2.waitKey(1)
+    ok, frame = cap.read()
+    for i in range(3, 0, -1):
+        ok, frame = cap.read(); show(frame, "Calibration", [f"Five short steps, {seconds:.0f} s each. Face the camera.", f"Starting in {i}"]); time.sleep(1)
+    for n, (name, instruction) in enumerate(steps, 1):
+        for i in range(2, 0, -1):
+            ok, frame = cap.read(); show(frame, f"Step {n} of {len(steps)}", [instruction, f"in {i}..."], (0, 200, 90)); time.sleep(1)
         ls, rs, js = [], [], []
         t_start = time.time()
         while time.time() - t_start < seconds:
             ok, frame = cap.read()
             if not ok:
                 continue
-            frame = cv2.flip(frame, 1)
-            res = det.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)), int((time.time() - t0) * 1000))
+            fr = cv2.flip(frame, 1)
+            res = det.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(fr, cv2.COLOR_BGR2RGB)), int((time.time() - t0) * 1000))
             sc = smile_scores(res)
             if sc:
                 ls.append(sc[0]); rs.append(sc[1])
                 d = {b.category_name: b.score for b in res.face_blendshapes[0]}
                 js.append(d.get("jawOpen", 0.0))
-            cv2.putText(frame, instruction, (12, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 90), 2)
-            cv2.imshow("Served With a Smile: calibration", frame); cv2.waitKey(1)
-        if not ls:
-            print("   no face seen; try again"); continue
-        results[name] = {"left": statistics.median(ls), "right": statistics.median(rs), "jaw": statistics.median(js), "n": len(ls)}
-        print(f"   {name}: left {results[name]['left']:.2f} right {results[name]['right']:.2f} jaw {results[name]['jaw']:.2f} ({len(ls)} frames)", flush=True)
-    cap.release(); cv2.destroyAllWindows()
+            left = seconds - (time.time() - t_start)
+            img = card(fr, f"Step {n} of {len(steps)}: {instruction}", [f"hold it... {left:.1f} s", "" if sc else "NO FACE SEEN"], (0, 200, 90))
+            hh, ww = img.shape[:2]
+            cv2.rectangle(img, (40, hh - 60), (ww - 40, hh - 30), (60, 60, 60), -1)
+            cv2.rectangle(img, (40, hh - 60), (40 + int((ww - 80) * (1 - left / seconds)), hh - 30), (0, 200, 90), -1)
+            cv2.imshow(win, img); cv2.waitKey(1)
+        if ls:
+            results[name] = {"left": statistics.median(ls), "right": statistics.median(rs), "jaw": statistics.median(js), "n": len(ls)}
+    cap.release()
     r = results.get("rest", {"left": 0, "right": 0, "jaw": 0})
     def mid(a, b): return a + 0.5 * (b - a)
     calib = {
@@ -107,59 +133,14 @@ def calibrate(cam=0, seconds=3.0):
     }
     os.makedirs(os.path.dirname(CALIB), exist_ok=True)
     json.dump(calib, open(CALIB, "w"), indent=1)
-    print(f"\nsaved {CALIB}: trigger left {calib['up_left']:.2f} right {calib['up_right']:.2f}, release below {calib['down']:.2f}, mouth open {calib['jaw_open']:.2f}")
-    sep = {k: (results[k]["left"] - results[k]["right"]) for k in ("left", "right") if k in results}
-    print("one-sidedness (left minus right): " + ", ".join(f"{k} {v:+.2f}" for k, v in sep.items()) + "  (want opposite signs, each at least 0.10)")
-
-
-INSTRUCTIONS = (
-    ("SERVED WITH A SMILE", None),
-    ("", None),
-    ("LEFT cheek up", "fetch the cube"),
-    ("RIGHT cheek up", "bring it to me"),
-    ("SMILE once", "let go"),
-    ("SMILE twice", "nudge mode"),
-    ("SMILE 3 times", "home"),
-    ("", None),
-    ("in nudge mode:", None),
-    ("LEFT / RIGHT", "move a step"),
-    ("SMILE twice", "next axis"),
-    ("SMILE once", "grab / release"),
-)
-
-
-def draw_panel(frame, sc, up, group, thresholds):
-    """The instructions down the right side, the live scores as bars, the group being heard."""
-    h, w = frame.shape[:2]
-    pw = 360
-    panel = frame.copy()
-    cv2.rectangle(panel, (w - pw, 0), (w, h), (18, 18, 18), -1)
-    frame = cv2.addWeighted(panel, 0.82, frame, 0.18, 0)
-    y = 44
-    for left, right in INSTRUCTIONS:
-        if left == "SERVED WITH A SMILE":
-            cv2.putText(frame, left, (w - pw + 20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2)
-        elif left:
-            cv2.putText(frame, left, (w - pw + 20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (0, 200, 90) if right else (170, 170, 170), 1)
-            if right:
-                cv2.putText(frame, right, (w - pw + 190, y), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (235, 235, 235), 1)
-        y += 30
-    # live bars: how far each side is toward its trigger
-    y += 10
-    for label, val, thr in (("left", sc[0] if sc else 0.0, thresholds[0]), ("right", sc[1] if sc else 0.0, thresholds[1])):
-        cv2.putText(frame, f"{label} {val:.2f}", (w - pw + 20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
-        x0, x1 = w - pw + 120, w - 30
-        cv2.rectangle(frame, (x0, y - 14), (x1, y - 2), (60, 60, 60), -1)
-        fill = int((x1 - x0) * min(val / max(thr * 2, 0.01), 1.0))
-        cv2.rectangle(frame, (x0, y - 14), (x0 + fill, y - 2), (0, 200, 90) if val > thr else (120, 120, 120), -1)
-        tx = x0 + int((x1 - x0) * 0.5)
-        cv2.line(frame, (tx, y - 17), (tx, y + 1), (255, 255, 255), 1)
-        y += 28
-    heard = "".join(group) or ("holding " + up if up else "")
-    cv2.putText(frame, heard, (w - pw + 20, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 200, 90), 2)
-    if not sc:
-        cv2.putText(frame, "no face", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
-    return frame
+    lines = [f"{k:6s}  left {v['left']:.2f}   right {v['right']:.2f}   mouth {v['jaw']:.2f}" for k, v in results.items()]
+    lines += ["", f"triggers: left {calib['up_left']:.2f}  right {calib['up_right']:.2f}  mouth {calib['jaw_open']:.2f}",
+              "saved. Press any key to close."]
+    sep_ok = results.get("left", {}).get("left", 0) - results.get("left", {}).get("right", 0) > 0.10 and \
+             results.get("right", {}).get("right", 0) - results.get("right", {}).get("left", 0) > 0.10
+    img = card(cv2.flip(frame, 1), "Done" if sep_ok else "Done, but the sides are close; try again", lines, (0, 200, 90) if sep_ok else (0, 160, 255))
+    cv2.imshow(win, img); cv2.waitKey(0); cv2.destroyAllWindows()
+    print(json.dumps({k: round(v, 3) for k, v in calib.items() if isinstance(v, float)}))
 
 
 def load_calib():
