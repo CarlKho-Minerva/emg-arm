@@ -27,10 +27,24 @@ DB, COLL = "served_with_a_smile", "episodes"
 _state = {"uri": None, "ok": None, "error": "", "checked": 0.0, "client": None}
 
 
-def _uri():
+LOCAL_URI = "mongodb://localhost:27017"
+
+
+def _uris():
+    """Candidates in order: SERVE_MONGODB_URI (Atlas, set at the table), SANDBOX_MONGODB_URI, then a local mongod.
+    On 30 Oct both Atlas hostnames in the env returned NXDOMAIN from two networks: those clusters are gone."""
     from dotenv import load_dotenv
     load_dotenv(os.path.expanduser("~/.config/carl-life-os/.env"))
-    return os.environ.get("SERVE_MONGODB_URI") or os.environ.get("SANDBOX_MONGODB_URI")
+    out = []
+    for k in ("SERVE_MONGODB_URI", "SANDBOX_MONGODB_URI"):
+        if os.environ.get(k):
+            out.append((k, os.environ[k]))
+    out.append(("local", LOCAL_URI))
+    return out
+
+
+def _uri():
+    return _uris()[0][1]
 
 
 def _append(doc):
@@ -68,19 +82,18 @@ def mongo(timeout_ms=4000):
     if time.time() - _state["checked"] < 20:
         return None
     _state["checked"] = time.time()
-    uri = _uri()
-    _state["uri"] = uri
-    if not uri:
-        _state.update(ok=False, error="no MongoDB URI in the env"); return None
-    try:
-        from pymongo import MongoClient
-        c = MongoClient(uri, serverSelectionTimeoutMS=timeout_ms, connectTimeoutMS=timeout_ms)
-        c.admin.command("ping")
-        _state.update(ok=True, error="", client=c)
-        return c
-    except Exception as e:
-        _state.update(ok=False, error=str(e)[:120], client=None)
-        return None
+    errors = []
+    from pymongo import MongoClient
+    for name, uri in _uris():
+        try:
+            c = MongoClient(uri, serverSelectionTimeoutMS=timeout_ms if name != "local" else 1500, connectTimeoutMS=timeout_ms)
+            c.admin.command("ping")
+            _state.update(ok=True, error="", client=c, uri=uri, which=name)
+            return c
+        except Exception as e:
+            errors.append(f"{name}: {str(e)[:60]}")
+    _state.update(ok=False, error="; ".join(errors)[:200], client=None, which=None)
+    return None
 
 
 _lock = threading.Lock()
@@ -116,7 +129,7 @@ def push():
 def mongo_status():
     rows = load()
     queued = sum(1 for r in rows if not r.get("synced"))
-    return {"configured": bool(_uri()), "ok": _state["ok"], "error": _state["error"], "queued": queued,
+    return {"configured": True, "ok": _state["ok"], "error": _state["error"], "queued": queued, "which": _state.get("which"),
             "synced": len(rows) - queued, "db": DB, "collection": COLL}
 
 
@@ -136,29 +149,73 @@ def stats():
         d["avg_s"] = round(sum(ds) / len(ds), 1) if ds else None
     live = [r for r in rows if r.get("source") == "live"]
     return {"total": len(rows), "live": len(live), "backfill": len(rows) - len(live), "by_kind": by,
-            "last": rows[-5:][::-1], "mongo": mongo_status()}
+            "last": rows[-7:][::-1], "mongo": mongo_status()}
 
 
 def backfill():
-    """Thursday's serve.log (time, group, action) as episodes. Outcomes come from the action text only;
-    a line that does not say is recorded as ok=None, never guessed."""
+    """Thursday's records as episodes, source "backfill", original timestamps kept, nothing invented.
+    Four sources: data/serve.log (face commands and what the arm did), data/practice.json (the cube-pick
+    practice rounds, whose hold check was later found untrusted and is recorded as such), data/episodes.json
+    (the 30-second follower runs scored by sim.py), and data/handover/<run>/ (the handover recordings: frame
+    count and duration from the frame timestamps; no outcome is on disk, so ok=None)."""
+    import glob
     have = {r["episode_id"] for r in load()}
-    n = 0
-    for ln in open(SERVE_LOG):
-        parts = ln.strip().split(" ", 2)
-        if len(parts) < 3:
+    new = []
+    def add(doc):
+        if doc["episode_id"] not in have:
+            new.append(dict(doc, source="backfill", synced=False)); have.add(doc["episode_id"])
+    # 1. serve.log
+    try:
+        for ln in open(SERVE_LOG):
+            parts = ln.strip().split(" ", 2)
+            if len(parts) < 3:
+                continue
+            t, g, action = float(parts[0]), parts[1], parts[2]
+            kind = ("fetch" if action.startswith("fetch") else "feed_face" if action == "feed" else "handover" if "hand it over" in action
+                    else "let_go" if action == "let go" else "home" if action == "home" else "nudge" if "nudge" in action or "axis" in action else action)
+            ok = True if "picked and proved" in action or action in ("let go", "home") else False if "missed" in action else None
+            add({"episode_id": f"backfill_{int(t * 1000)}", "kind": kind, "trigger": g, "t_start": t, "t_end": None, "duration_s": None,
+                 "ok": ok, "reason": action, "note": "from data/serve.log, 29 Oct; outcome only where the line says it"})
+    except FileNotFoundError:
+        pass
+    # 2. practice.json: cube-pick practice rounds, 29 Oct 18:00 to 18:51
+    pj = os.path.join(HERE, "data", "practice.json")
+    if os.path.exists(pj):
+        import datetime
+        for i, r in enumerate(json.load(open(pj))):
+            hh, mm, ss = (int(v) for v in r["at"].split(":"))
+            t = datetime.datetime(2026, 10, 29, hh, mm, ss).timestamp()
+            trusted = "untrusted" not in r.get("held_by", "") and "held_by" in r
+            add({"episode_id": f"backfill_practice_{i:02d}", "kind": "pick_practice", "trigger": "keyboard", "t_start": t,
+                 "t_end": t + r["seconds"], "duration_s": r["seconds"], "cube": r["colour"], "round": r["round"],
+                 "ok": r["held"] if trusted else None, "reason": r.get("held_by", "held flag only; no finger check recorded"),
+                 "note": "practice.py, 29 Oct; 'held' from the early finger read, later found to report 12 false holds, so ok=None where untrusted"})
+    # 3. episodes.json: follower runs scored by sim.py
+    ej = os.path.join(HERE, "data", "episodes.json")
+    if os.path.exists(ej):
+        for r in json.load(open(ej)):
+            run = r["run"]
+            try:
+                t = __import__("time").mktime(__import__("time").strptime(run[:15], "%Y%m%d-%H%M%S"))
+            except ValueError:
+                t = None
+            add({"episode_id": f"backfill_follow_{run}", "kind": "follow", "trigger": "keyboard", "t_start": t, "t_end": (t + 30) if t else None,
+                 "duration_s": 30.0, "tag": r["tag"], "held_out": r["held_out"], "frames": r["frames"], "seen": r["seen"],
+                 "lost_share": r["lost"], "rms_error": r["rms"], "reward": r["reward"], "ok": r["exit"] == 0 and r["seen"] > 0,
+                 "reason": f"follower run, tag {r['tag']}, reward {r['reward']}", "note": "follow.py --live 30 s, scored by sim.py, 29 Oct"})
+    # 4. handover recordings: frames on disk
+    for d in sorted(glob.glob(os.path.join(HERE, "data", "handover", "*"))):
+        frames = sorted(f for f in os.listdir(d) if f.endswith(".jpg"))
+        if len(frames) < 2:
             continue
-        t, g, action = float(parts[0]), parts[1], parts[2]
-        eid = f"backfill_{int(t * 1000)}"
-        if eid in have:
-            continue
-        kind = ("fetch" if action.startswith("fetch") else "feed_face" if action == "feed" else "handover" if "hand it over" in action
-                else "let_go" if action == "let go" else "home" if action == "home" else "nudge" if "nudge" in action or "axis" in action else action)
-        ok = True if "picked and proved" in action or action in ("let go", "home") else False if "missed" in action else None
-        _append({"episode_id": eid, "kind": kind, "trigger": g, "t_start": t, "t_end": None, "duration_s": None, "ok": ok,
-                 "reason": action, "source": "backfill", "synced": False, "note": "from data/serve.log, 29 Oct; outcome only where the line says it"})
-        n += 1
-    return n
+        t0, t1 = float(frames[0][:-4]), float(frames[-1][:-4])
+        name = os.path.basename(d)
+        add({"episode_id": f"backfill_handover_{name}", "kind": "handover_face" if name.endswith("-face") else "handover", "trigger": "keyboard",
+             "t_start": t0, "t_end": t1, "duration_s": round(t1 - t0, 1), "frames": len(frames), "ok": None,
+             "reason": f"{len(frames)} frames over {t1 - t0:.0f} s; outcome not on disk", "note": "handme.handover recording, 29 Oct"})
+    for doc in new:
+        _append(doc)
+    return len(new)
 
 
 if __name__ == "__main__":

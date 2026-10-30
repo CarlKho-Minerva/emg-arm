@@ -209,7 +209,7 @@ h2{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0}
 .pic{flex:1 1 auto;min-height:140px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#000;position:relative}
 .pic img{display:block;width:100%;height:100%;object-fit:contain;background:#000}
 .card{border:1px solid var(--line);border-radius:8px;background:var(--card);padding:10px 14px;min-height:0}
-.log{flex:0 1 auto;max-height:56%;display:flex;flex-direction:column;min-height:0}
+.log{flex:0 1 auto;max-height:34%;display:flex;flex-direction:column;min-height:0}
 .log table{width:100%;border-collapse:collapse;font-size:13.5px;font-variant-numeric:tabular-nums}
 .log td{padding:3px 6px 3px 0;border-bottom:1px solid var(--line);vertical-align:top;white-space:nowrap}
 .log td:last-child{white-space:normal}
@@ -219,6 +219,15 @@ h2{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0}
 .log td.a{color:var(--mut)}
 .log tr:last-child td.a,.log tr:last-child td.f{color:var(--fg)}
 .log .rows{flex:1 1 auto;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;margin-top:6px;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 28px);mask-image:linear-gradient(to bottom,transparent 0,#000 28px)}
+.tiles{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:8px 0 6px}
+.tile{border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:var(--bg)}
+.tile .n{font-size:22px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.tile .l{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+.eps{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
+.eps td{padding:2px 6px 2px 0;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:top}
+.eps td:last-child{white-space:normal;color:var(--mut)}
+.eps td.t{color:var(--mut);font:11.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;width:62px}
+.eps td.ok{color:var(--ok);font-weight:600;width:14px}.eps td.no{color:var(--warn);font-weight:600;width:14px}.eps td.na{color:var(--mut);width:14px}
 .count{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);font-size:14px;color:var(--mut)}
 .count b{color:var(--fg);font-weight:600;font-size:16px}
 .empty{color:var(--mut);font-size:13.5px}
@@ -258,7 +267,18 @@ h2{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0}
     <div class="k"><span>What it did, as it wrote it (data/serve.log)</span><span class="tag" id="log_tag"></span></div>
     <div class="rows"><table><tbody id="rows"></tbody></table><div class="empty" id="log_empty" style="display:none">nothing yet; serve.py writes a line for every face group it acts on</div></div>
     <div class="count" id="count">episodes <b>0</b></div>
-    <div class="count" id="mongo" style="border-top:0;padding-top:2px;font-size:13px"></div>
+  </div>
+  <div class="card" id="mongocard">
+    <div class="k"><span>MongoDB: the robot's episodic memory</span><span class="tag" id="mongo_tag">-</span></div>
+    <div class="tiles">
+      <div class="tile"><div class="n" id="t_total">0</div><div class="l">episodes</div></div>
+      <div class="tile"><div class="n" id="t_fetch">0/0</div><div class="l">fetch ok</div></div>
+      <div class="tile"><div class="n" id="t_feed">0/0</div><div class="l">Skully fed</div></div>
+      <div class="tile"><div class="n" id="t_refused">0</div><div class="l">refused</div></div>
+      <div class="tile"><div class="n" id="t_today">0</div><div class="l">today, live</div></div>
+    </div>
+    <table class="eps"><tbody id="eps"></tbody></table>
+    <div class="count" id="mongo" style="font-size:12.5px"></div>
   </div>
 </section>
 <section>
@@ -309,9 +329,15 @@ async function tick(){
   $('log_tag').textContent=rows.length?(s.counts.lines>rows.length?`last ${rows.length} of ${s.counts.lines}`:`${rows.length} lines`):'';
   const ep=s.episodes||{}, bk=ep.by_kind||{};
   const k=n=>bk[n]||{attempts:0,ok:0,refused:0};
-  $('count').innerHTML=`episodes <b>${ep.total||0}</b> (${ep.live||0} today, ${ep.backfill||0} backfilled) &middot; fetch <b>${k('fetch').ok}/${k('fetch').attempts}</b> &middot; feed Skully <b>${k('feed_skully').ok}/${k('feed_skully').attempts}</b>, refused <b>${k('feed_skully').refused}</b>`;
+  $('count').innerHTML=`episodes <b>${ep.total||0}</b>: ${ep.live||0} live today, ${ep.backfill||0} backfilled from Thursday's logs`;
+  $('t_total').textContent=ep.total||0; $('t_fetch').textContent=`${k('fetch').ok}/${k('fetch').attempts}`;
+  $('t_feed').textContent=`${k('feed_skully').ok}/${k('feed_skully').attempts}`; $('t_refused').textContent=k('feed_skully').refused; $('t_today').textContent=ep.live||0;
+  const last=ep.last||[];
+  $('eps').innerHTML=last.map(e=>`<tr><td class="t">${e.t_start?new Date(e.t_start*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}):''}</td><td class="${e.ok===true?'ok':e.ok===false?'no':'na'}">${e.ok===true?'&#10003;':e.ok===false?'&#10007;':'?'}</td><td>${esc(e.kind||'')}</td><td>${esc(e.trigger||'')}</td><td>${esc(e.reason||'')}${e.duration_s?` (${e.duration_s} s)`:''}${e.source&&e.source!=='live'?` <i>${esc(e.source)}</i>`:''}</td></tr>`).join('');
   const mg=ep.mongo||{}; const ax=s.skully||{};
-  $('mongo').innerHTML=`MongoDB ${mg.db||''}.${mg.collection||''}: `+(mg.ok?`<span style="color:var(--ok)">connected, ${mg.synced} synced</span>`:`<span style="color:var(--warn)">unreachable from this network, ${mg.queued} queued on disk</span>`)+(ax.t?` &middot; Skully: ${ax.seen?(ax.stable?'<span style="color:var(--ok)">still</span>':'<span style="color:var(--warn)">moving '+(ax.moved_mm||0).toFixed(0)+' mm</span>'):'not seen'} (${fmtAge(Date.now()/1000-ax.t)} ago)`:'');
+  $('mongo_tag').textContent=mg.ok?`${mg.which==='local'?'local MongoDB':'Atlas'} connected, ${mg.synced} synced`:`MongoDB unreachable (Atlas clusters gone, no local mongod yet); ${mg.queued} queued on disk`;
+  $('mongo_tag').className='tag '+(mg.ok?'ok':'warn');
+  $('mongo').innerHTML=`${mg.db||''}.${mg.collection||''} &middot; one document per command: gesture, what the camera saw, the three checks, outcome, duration. Local mirror data/serve_episodes.jsonl is written first; MongoDB gets every unsynced document when a connection succeeds.`+(ax.t?`<br>Skully: ${ax.seen?(ax.stable?'<span style="color:var(--ok)">still</span>':'<span style="color:var(--warn)">moving '+(ax.moved_mm||0).toFixed(0)+' mm</span>'):'not seen'}, ${fmtAge(Date.now()/1000-ax.t)} ago`+(ax.x!=null?` at x=${ax.x.toFixed(0)} y=${ax.y.toFixed(0)}`:''):'');
   const rb=s.robot||{};
   $('robot_tag').textContent=rb.source==='box'?'live from the box':rb.source==='file'?`last picture on disk, ${fmtAge(rb.age)} old`:'robot offline';
   $('robot_tag').className='tag '+(rb.source==='box'?'ok':'warn');
