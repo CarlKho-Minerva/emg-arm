@@ -62,6 +62,8 @@ def write_group(group):
 
 
 CALIB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "face_calib.json")
+FRAMES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "face_frames.jsonl")
+FACE_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "face_model.json")
 GESTURES = (("rest", "relax your face"), ("left", "pull your LEFT cheek up (a smirk)"), ("right", "pull your RIGHT cheek up"),
             ("both", "full smile, both sides"), ("mouth", "open your mouth"))
 
@@ -89,7 +91,7 @@ def calibrate(cam=0, seconds=3.0):
     if not cap.isOpened():
         raise SystemExit("no camera")
     win = "Served With a Smile: calibration"
-    t0 = time.time(); results = {}
+    t0 = time.time(); results = {}; frames = []
     steps = [("rest", "RELAX. Straight face."), ("left", "Pull your LEFT cheek up. A smirk."), ("right", "Pull your RIGHT cheek up."),
              ("both", "Full smile, both sides."), ("mouth", "Open your mouth.")]
     def show(frame, title, lines, colour=(255, 255, 255)):
@@ -113,6 +115,7 @@ def calibrate(cam=0, seconds=3.0):
                 ls.append(sc[0]); rs.append(sc[1])
                 d = {b.category_name: b.score for b in res.face_blendshapes[0]}
                 js.append(d.get("jawOpen", 0.0))
+                frames.append({"label": name, "t": time.time(), "shapes": d})
             left = seconds - (time.time() - t_start)
             img = card(fr, f"Step {n} of {len(steps)}: {instruction}", [f"hold it... {left:.1f} s", "" if sc else "NO FACE SEEN"], (0, 200, 90))
             hh, ww = img.shape[:2]
@@ -133,6 +136,9 @@ def calibrate(cam=0, seconds=3.0):
     }
     os.makedirs(os.path.dirname(CALIB), exist_ok=True)
     json.dump(calib, open(CALIB, "w"), indent=1)
+    with open(FRAMES, "a") as f:                       # every frame of every calibration, for train_face.py
+        for fr in frames:
+            f.write(json.dumps(fr) + "\n")
     lines = [f"{k:6s}  left {v['left']:.2f}   right {v['right']:.2f}   mouth {v['jaw']:.2f}" for k, v in results.items()]
     lines += ["", f"triggers: left {calib['up_left']:.2f}  right {calib['up_right']:.2f}  mouth {calib['jaw_open']:.2f}",
               "saved. Press any key to close."]
