@@ -27,13 +27,14 @@ MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/face_landmarker/fa
 LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "face.log")
 UP, DOWN = 0.18, 0.10      # a side counts as pulled above UP, released below DOWN (Carl's cheek pull reads 0.20, rest 0.08)
 SIDE_GAP = 0.10            # one side must beat the other by this to be one-sided; closer = both
-GROUP_S = 0.5              # smiles within this are one group (B, BB, BBB); quiet this long ends it (0.8 felt slow, Carl 30 Oct 15:00)
+GROUP_S = 0.9              # smiles within this are one group (B, BB, BBB); quiet this long ends it. Cheeks never wait for this.
 MIN_HOLD_S = 0.08          # a smile must stay up this long (one blink of noise is not a smile)
 CHEEK_HOLD_S = 0.25        # a cheek must stay up this long: a quick asymmetry while moving or talking read as R (24 false R in 8 min, 30 Oct 15:13)
 CHEEK_REPEAT_S = 1.5       # the same cheek does not fire twice within this
 YAW_MAX = 0.4              # head turned more than this (nose offset over eye distance) and a cheek is not read: one side is foreshortened
 REFRACTORY_S = 0.2         # after a cheek release, nothing new counts for this long (a relaxing cheek crosses the other side's line)
-REFRACTORY_B_S = 0.5       # after a SMILE release: a smile that flickers off and on read as BB and flipped the layer (30 Oct 15:05)
+REFRACTORY_B_S = 0.15      # after a SMILE release before the next may start. Flicker is absorbed by RELEASE_MIN_S instead (0.5 here made BB impossible, 15:17)
+RELEASE_MIN_S = 0.12       # a release shorter than this does not end the event: a smile that flickers off and on is one smile
 
 
 def detector():
@@ -315,6 +316,7 @@ def main(window=True, cam=0):
     up = None            # the event currently being held: "L", "R", "B" or None
     last_up = None
     last_cheek = {}
+    rel_since = None
     released_at = 0.0
     up_since = 0.0
     counted = False
@@ -382,8 +384,12 @@ def main(window=True, cam=0):
                         group.append(up); last_event = now
                         print(f"  {''.join(group)}", flush=True)
                 released = (label in ("rest", "mouth", "other", None)) if model else (l < down and r < down)
-                if released and (not model or now - up_since > MIN_HOLD_S):
-                    last_up = up; up = None; released_at = now
+                if released:
+                    rel_since = rel_since or now
+                    if now - rel_since >= RELEASE_MIN_S and (not model or now - up_since > MIN_HOLD_S):
+                        last_up = up; up = None; released_at = now; rel_since = None
+                else:
+                    rel_since = None
         if group and up is None and now - last_event > GROUP_S:
             g = "".join(group)
             write_group(g)
