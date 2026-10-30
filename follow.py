@@ -117,7 +117,7 @@ def watch_score(bgr, pts):
 LAST_SIZE = 0.0   # wrist-to-knuckle size of the hand hand_centre last chose, as a fraction of the picture width
 
 
-def hand_centre(det, jpeg, near=None, want=None, avoid=None, keep=None):
+def hand_centre(det, jpeg, near=None, want=None, avoid=None, keep=None, use_net=True):
     """Palm centre (0..1, 0..1) of the hand to follow, or None.
 
     near: last known centre; of several hands, the closest to it wins (sticky tracking).
@@ -147,7 +147,7 @@ def hand_centre(det, jpeg, near=None, want=None, avoid=None, keep=None):
         size = math.hypot(pts[9].x - pts[0].x, pts[9].y - pts[0].y)   # wrist to middle knuckle, in frame widths
         if size < MIN_HAND:
             continue                                      # a far-away person's hand
-        p_left = is_left(crop_for(bgr, pts)) if model_ready() else None
+        p_left = is_left(crop_for(bgr, pts)) if (use_net and model_ready()) else None
         if p_left is not None and p_left < ID_MIN:
             continue                                      # the net says this is not Carl's left hand
         cands.append((c, watch_score(bgr, pts), p_left, size))

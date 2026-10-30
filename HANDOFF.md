@@ -156,3 +156,9 @@ Written by the sEMG child thread on this Mac (forge-m5-48). Times are PT.
   GitHub, pulled on the 128). `lead-figure.html` is attached to the entry as a copy
   (`n1-lab/private/attachments/ssc_lead_figure.html`); the hackathon copy is untouched. Results get
   appended to the page as dated lines, then re-pushed the same way.
+- **18:59 First lead conducts; floor 0.18 uV.** Channel 2 lead (twisted, taped, unsoldered) pinched
+  against the bare SRB1 + Bias jumper ends: 0.18 uV rms 0.5-50 Hz, 0% railed, offset 0.08 mV
+  (`data/bench/20261030T015933Z_short`). The 4 uV Study 00 floor was the Zenbook, not the board.
+  Lesson for the other three leads: a lead hanging in the air reads full scale or swings, same as
+  a bad joint; test joints only by shorting them to SRB1 + Bias. Carl is soldering ch2 and making
+  leads 1, REF, BIAS next; then one pinch test of all four.

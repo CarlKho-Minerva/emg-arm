@@ -152,7 +152,12 @@ async def handover(rig):
             body, other, mine = body_cache
             seen_wrist = bool(body and body[2] == "wrist")
             near = (body[0], body[1]) if seen_wrist else sm
-            raw = hand_centre(det, jpeg, near=near, want=None if seen_wrist else "watch", avoid=other, keep=mine)
+            if at_target:
+                # above the palm: the only hand under the gripper is the one taking the cube. No classifier
+                # (it was trained on the back of the hand and rejected a palm-up hand from above, 19:01)
+                raw = hand_centre(det, jpeg, use_net=False)
+            else:
+                raw = hand_centre(det, jpeg, near=near, want=None if seen_wrist else "watch", avoid=other, keep=mine)
             if raw is None:
                 if time.time() - last_seen > 0.5:          # a short gap does not reset the clock
                     still_since = None; sm = None
