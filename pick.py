@@ -299,7 +299,7 @@ async def pick_cube_once(rig, colour, attempt):
     except Exception:
         pass
     await say(f"{colour} cube confirmed in the gripper; to greet, to find your hand")
-    await step("greet go-to", rig.greet.set_position(2)); await asyncio.sleep(5)
+    await step("greet go-to", rig.greet.set_position(2)); await asyncio.sleep(1)
     return True
 
 

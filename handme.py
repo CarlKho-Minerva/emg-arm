@@ -41,10 +41,11 @@ TAKE_S = 5.0          # seconds the gripper stays open for Carl to take it
 REPLAN_MM = 50.0      # re-plan when the hand has moved more than this
 STEADY_PX = 0.06      # smoothed hand moves less than this (fraction of the picture) between frames = still
 STEADY_S = 0.6        # still for this long before ranging and moving
-TAKE_SIZE = 0.18      # wrist-to-knuckle over this fraction of the picture width = the palm is close under the claw
+TAKE_SIZE = 0.12      # wrist-to-knuckle over this fraction of the picture width (a palm 25 cm below reads ~0.15)
 TAKE_CENTRE = 0.18    # ...and within this of the gripper's point in the picture
 TAKE_S = 0.7          # ...for this long: let go
-DROP_ABOVE = 120.0    # mm above the palm for the claw pose
+LOOK_ABOVE = 250.0    # mm above the palm for the claw pose where the camera can still see under the gripper
+DROP_ABOVE = 110.0    # mm above the palm to descend to, blind, before opening
 DWELL_S = 2.0         # hand still, arm at the standoff, for this long: let go
 SAFE_X = 850.0        # mm: direct moves never go further forward than this (the laptop wall is at 950)
 FOLLOW_MAX_S = 60.0   # give up following after this
@@ -133,7 +134,7 @@ async def handover(rig):
         await arm.do_command({"set_speed": 60.0, "set_acceleration": 200.0})
     sm = None; still_since = None; frame_n = 0; body_cache = (None, None, None)
     at_target = None; last_seen = 0.0; seen_n = 0; last_beat = 0.0; big_since = None
-    under = (0.5, 0.5)
+    under = (0.5, 0.5); tx = ty = 0.0; palm_z = 0.0
     pending = None
     adx = ady = 0.0
     t_start = time.time()
@@ -170,10 +171,14 @@ async def handover(rig):
             if at_target and F.LAST_SIZE >= TAKE_SIZE and abs(ex0) < TAKE_CENTRE and abs(ey0) < TAKE_CENTRE:
                 big_since = big_since or time.time()
                 if time.time() - big_since >= TAKE_S:
-                    await say(f"your hand is at the cube (size {F.LAST_SIZE:.2f} of the picture): letting go")
+                    await say(f"palm under the gripper (size {F.LAST_SIZE:.2f}, off by {ex0:+.2f},{ey0:+.2f}): descending to {DROP_ABOVE:.0f} mm above it and letting go")
                     if live:
                         if pending and not pending.done():
                             pending.cancel()
+                        try:
+                            await asyncio.wait_for(arm.move_to_position(Pose(x=tx, y=ty, z=max(palm_z + DROP_ABOVE, MIN_Z), o_x=0, o_y=0, o_z=-1, theta=0)), 15)
+                        except Exception as e:
+                            await say(f"   descent refused ({str(e)[:60]}); opening from here")
                         await gripper.open()
                     await asyncio.sleep(2)
                     break
@@ -211,8 +216,10 @@ async def handover(rig):
                 x = (u - intr.center_x_px) * mm / intr.focal_x_px; y = (v - intr.center_y_px) * mm / intr.focal_y_px
                 w = (await machine.transform_pose(PoseInFrame(reference_frame="cam", pose=Pose(x=x, y=y, z=mm, o_z=1)), "world")).pose
                 hx, hy, hz = w.x, w.y, w.z
-                # the claw pose: above the palm, pointing down, the camera looking at the hand
-                tx, ty, tz = hx, hy, hz + DROP_ABOVE
+                # the claw pose: above the palm, pointing down, high enough that the camera can see the point
+                # under the gripper (at 12 cm it projected below the picture's edge, 19:04)
+                tx, ty, tz = hx, hy, hz + LOOK_ABOVE
+                palm_z = hz
                 flat = math.hypot(tx, ty)
                 if flat > REACH:
                     tx, ty = tx * REACH / flat, ty * REACH / flat
