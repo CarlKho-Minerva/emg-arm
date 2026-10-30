@@ -372,7 +372,18 @@ async def main(live, cube, face_feed):
                         await say("gripper toggled")
                     else:
                         log(g, "ignored"); await say(f"{g}: nothing bound to that in STEER")
+            # events heard while the arm was busy: a layer switch or a stop is honoured now, the rest is logged, not lost silently
+            late = [g2 for _, g2 in new_groups(since)]
             since = time.time()
+            if late:
+                keep = next((g2 for g2 in reversed(late) if g2 in ("BB", "BBB")), None)
+                dropped = [g2 for g2 in late if g2 != keep]
+                if dropped:
+                    log("-", f"heard while busy, not acted on: {' '.join(dropped)}")
+                if keep:
+                    await say(f"{keep} heard while busy: acting on it now")
+                    with open(FACE_LOG, "a") as f:
+                        f.write(f"{time.time():.3f} {keep}\n")      # re-queue it; the loop reads it on the next pass
 
 
 if __name__ == "__main__":
