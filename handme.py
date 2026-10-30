@@ -41,8 +41,10 @@ TAKE_S = 5.0          # seconds the gripper stays open for Carl to take it
 REPLAN_MM = 50.0      # re-plan when the hand has moved more than this
 STEADY_PX = 0.06      # smoothed hand moves less than this (fraction of the picture) between frames = still
 STEADY_S = 0.6        # still for this long before ranging and moving
-TAKE_SIZE = 0.25      # wrist-to-knuckle over this fraction of the picture width = the hand is at the cube
-TAKE_S = 0.7          # ...for this long: let go (no stillness needed; this is how a person takes a thing)
+TAKE_SIZE = 0.18      # wrist-to-knuckle over this fraction of the picture width = the palm is close under the claw
+TAKE_CENTRE = 0.22    # ...and within this of the picture centre (under the gripper)
+TAKE_S = 0.7          # ...for this long: let go
+DROP_ABOVE = 120.0    # mm above the palm for the claw pose
 DWELL_S = 2.0         # hand still, arm at the standoff, for this long: let go
 SAFE_X = 850.0        # mm: direct moves never go further forward than this (the laptop wall is at 950)
 FOLLOW_MAX_S = 60.0   # give up following after this
@@ -156,8 +158,10 @@ async def handover(rig):
                     still_since = None; sm = None
                 continue
             seen_n += 1; last_seen = time.time()
-            # "take it": a hand this big in the picture is at the cube; TAKE_S of that and it opens
-            if F.LAST_SIZE >= TAKE_SIZE:
+            # "take it": only once the arm is above the palm (claw pose), and the palm is centred under it
+            # and big in the picture; TAKE_S of that and it opens. Never while still following.
+            ex0, ey0 = raw[0] - 0.5, raw[1] - 0.5
+            if at_target and F.LAST_SIZE >= TAKE_SIZE and abs(ex0) < TAKE_CENTRE and abs(ey0) < TAKE_CENTRE:
                 big_since = big_since or time.time()
                 if time.time() - big_since >= TAKE_S:
                     await say(f"your hand is at the cube (size {F.LAST_SIZE:.2f} of the picture): letting go")
@@ -200,23 +204,28 @@ async def handover(rig):
                 x = (u - intr.center_x_px) * mm / intr.focal_x_px; y = (v - intr.center_y_px) * mm / intr.focal_y_px
                 w = (await machine.transform_pose(PoseInFrame(reference_frame="cam", pose=Pose(x=x, y=y, z=mm, o_z=1)), "world")).pose
                 hx, hy, hz = w.x, w.y, w.z
-                tx, ty, tz = target_for(hx, hy, hz); tx = min(tx, SAFE_X); tz = max(tz, MIN_Z)
-                await say(f"hand still at x={hx:.0f} y={hy:.0f} z={hz:.0f} ({mm} mm away); bringing the cube to x={tx:.0f} y={ty:.0f} z={tz:.0f}")
+                # the claw pose: above the palm, pointing down, the camera looking at the hand
+                tx, ty, tz = hx, hy, hz + DROP_ABOVE
+                flat = math.hypot(tx, ty)
+                if flat > REACH:
+                    tx, ty = tx * REACH / flat, ty * REACH / flat
+                tx = min(tx, SAFE_X); tz = max(tz, MIN_Z)
+                await say(f"hand still at x={hx:.0f} y={hy:.0f} z={hz:.0f} ({mm} mm away); claw to x={tx:.0f} y={ty:.0f} z={tz:.0f}, pointing down")
                 if live:
-                    flat = math.hypot(hx, hy)
                     try:
-                        await asyncio.wait_for(arm.move_to_position(Pose(x=tx, y=ty, z=tz, o_x=hx / flat, o_y=hy / flat, o_z=0, theta=0)), 20)
+                        await asyncio.wait_for(arm.move_to_position(Pose(x=tx, y=ty, z=tz, o_x=0, o_y=0, o_z=-1, theta=0)), 20)
                     except Exception as e:
                         await say(f"direct move refused: {str(e)[:80]}"); still_since = None; continue
                 at_target = time.time(); still_since = time.time()
                 continue
-            # phase 3: at the target, hand still for DWELL_S: let go
-            if at_target and still_since and time.time() - at_target >= DWELL_S and time.time() - still_since >= DWELL_S:
-                await say(f"at your hand, still for {DWELL_S:.0f} s: letting go")
-                if live:
-                    await gripper.open()
-                await asyncio.sleep(2)
-                break
+            # phase 3: above the palm; keep nudging to stay centred over it (small pan/tilt only)
+            if at_target and live and not centred and time.time() - at_target > 1.0:
+                dx = max(-2.0, min(2.0, -GAIN * ex)); dy = max(-2.0, min(2.0, GAIN * ey))
+                j = list((await arm.get_joint_positions()).values)
+                j[0] += dx; j[2] += dy
+                if pending and not pending.done():
+                    pending.cancel()
+                pending = asyncio.create_task(arm.move_to_joint_positions(JointPositions(values=j)))
         else:
             await say(f"no handover in {FOLLOW_MAX_S:.0f} s; keeping it")
     finally:
