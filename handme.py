@@ -39,7 +39,8 @@ REACH = 800.0         # mm, furthest the gripper may be from the base
 MIN_Z = 150.0         # mm above the table
 TAKE_S = 5.0          # seconds the gripper stays open for Carl to take it
 REPLAN_MM = 50.0      # re-plan when the hand has moved more than this
-STEADY_MM = 60.0      # the hand counts as still if it moves less than this between frames
+STEADY_PX = 0.03      # smoothed hand moves less than this (fraction of the picture) between frames = still
+STEADY_S = 1.0        # still for this long before ranging and moving
 DWELL_S = 2.0         # hand still, arm at the standoff, for this long: let go
 SAFE_X = 850.0        # mm: direct moves never go further forward than this (the laptop wall is at 950)
 FOLLOW_MAX_S = 60.0   # give up following after this
@@ -89,59 +90,76 @@ async def place_bottle(rig):
 
 
 async def handover(rig):
-    """Bring the bottle to Carl's steady left hand and let go once he has had DWELL_S to take it.
+    """Bring the cube to Carl's left hand using the tuned follower's chooser, then let go on a 2 s dwell.
 
-    The wrist camera is behind the bottle during the carry, so it cannot see fingers at the gripper.
-    Rule instead: find the hand, go to STANDOFF short of it (direct move, inside the safe box), then
-    if the hand stays put (within STEADY_MM) for DWELL_S, open. Every frame is saved under
-    data/handover/<run>/ for review."""
-    machine, cam, intr, det, arm, gripper, greet, live = (rig.machine, rig.cam, rig.intr, rig.det,
-                                                           rig.arm, rig.gripper, rig.greet, rig.live)
+    Colour frames only (no depth) at the follower's rate: the hand is picked the way follow.py picks it
+    (body-wrist anchor every 3rd frame, right-wrist veto, the hand net, smoothing). When the smoothed hand
+    has been steady for STEADY_S, ONE depth read gives its distance, the gripper moves to STANDOFF short of
+    it (direct move inside the safe box), and after DWELL_S with the hand still there, the gripper opens.
+    Every frame is saved under data/handover/<run>/."""
+    machine, cam, intr, det, pose, arm, gripper, greet, live = (rig.machine, rig.cam, rig.intr, rig.det, rig.pose,
+                                                                rig.arm, rig.gripper, rig.greet, rig.live)
+    from follow import SMOOTH, depth_at, hand_centre
+    from tracker import arm_target, wrists
     rec = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "handover", time.strftime("%Y%m%d-%H%M%S"))
     os.makedirs(rec, exist_ok=True)
-    await say(f"following your left hand (recording to {os.path.basename(rec)}); hold your hand still 2 s to take it")
-    target = None
-    at_target = None      # when the arm reached the hand's standoff
-    still_since = None
-    last_hand = None
+    await say(f"following your left hand (recording {os.path.basename(rec)}); hold it still and the cube comes to it")
+    sm = None; still_since = None; frame_n = 0; body_cache = (None, None, None)
+    at_target = None; target = None
     t_start = time.time()
     while time.time() - t_start < FOLLOW_MAX_S:
-        r = await hand_in_world(machine, cam, det, intr)
         jpeg, _ = await grab(cam, want_depth=False)
         open(os.path.join(rec, f"{time.time():.3f}.jpg"), "wb").write(jpeg)
-        if r is None:
+        frame_n += 1
+        if frame_n % 3 == 1:
+            body = arm_target(pose, jpeg, "left"); ws = wrists(pose, jpeg)
+            body_cache = (body, ws["right"], ws["left"])
+        body, other, mine = body_cache
+        seen_wrist = bool(body and body[2] == "wrist")
+        near = (body[0], body[1]) if seen_wrist else sm
+        raw = hand_centre(det, jpeg, near=near, want=None if seen_wrist else "watch", avoid=other, keep=mine)
+        if raw is None:
             still_since = None
             continue
-        _, mm, _, (hx, hy, hz) = r
-        hand = (hx, hy, hz)
-        moved = last_hand is None or math.dist(hand, last_hand) > STEADY_MM
-        last_hand = hand
-        if moved:
-            still_since = None
-        else:
+        prev = sm
+        sm = raw if sm is None else (sm[0] + SMOOTH * (raw[0] - sm[0]), sm[1] + SMOOTH * (raw[1] - sm[1]))
+        if prev is not None and math.dist(sm, prev) < STEADY_PX:
             still_since = still_since or time.time()
-        tx, ty, tz = target_for(hx, hy, hz)
-        tx = min(tx, SAFE_X); tz = max(tz, MIN_Z)
-        if target is None or math.dist(target, (tx, ty, tz)) > REPLAN_MM:
-            await say(f"hand at x={hx:.0f} y={hy:.0f} z={hz:.0f} ({mm} mm away); gripper to x={tx:.0f} y={ty:.0f} z={tz:.0f}")
-            target = (tx, ty, tz); at_target = None
+        else:
+            still_since = None
+            at_target = None
+        if still_since and time.time() - still_since >= STEADY_S and at_target is None:
+            # one depth read for the distance, then go
+            _, depth = await grab(cam, want_depth=True)
+            mm = depth_at(depth, *sm)
+            if not mm or mm < 280:
+                await say(f"hand steady but too near the camera to range ({mm} mm); move it back a little")
+                still_since = None
+                continue
+            u, v = sm[0] * intr.width_px, sm[1] * intr.height_px
+            x = (u - intr.center_x_px) * mm / intr.focal_x_px; y = (v - intr.center_y_px) * mm / intr.focal_y_px
+            w = (await machine.transform_pose(PoseInFrame(reference_frame="cam", pose=Pose(x=x, y=y, z=mm, o_z=1)), "world")).pose
+            hx, hy, hz = w.x, w.y, w.z
+            tx, ty, tz = target_for(hx, hy, hz); tx = min(tx, SAFE_X); tz = max(tz, MIN_Z)
+            await say(f"hand steady at x={hx:.0f} y={hy:.0f} z={hz:.0f} ({mm} mm away); bringing the cube to x={tx:.0f} y={ty:.0f} z={tz:.0f}")
+            target = (tx, ty, tz)
             if live:
                 flat = math.hypot(hx, hy)
                 try:
                     await arm.move_to_position(Pose(x=tx, y=ty, z=tz, o_x=hx / flat, o_y=hy / flat, o_z=0, theta=0))
-                    at_target = time.time()
                 except Exception as e:
-                    await say(f"direct move refused: {str(e)[:80]}")
-            else:
-                at_target = time.time()
-        if at_target and still_since and time.time() - still_since >= DWELL_S and time.time() - at_target >= DWELL_S:
-            await say(f"at your hand and it has been still {DWELL_S:.0f} s: letting go")
+                    await say(f"direct move refused: {str(e)[:80]}"); continue
+            at_target = time.time()
+            still_since = time.time()
+            continue
+        if at_target and still_since and time.time() - at_target >= DWELL_S and time.time() - still_since >= DWELL_S:
+            await say(f"at your hand, still for {DWELL_S:.0f} s: letting go")
             if live:
                 await gripper.open()
             await asyncio.sleep(2)
             break
     else:
-        await say(f"no handover in {FOLLOW_MAX_S:.0f} s; keeping the bottle")
+        await say(f"no handover in {FOLLOW_MAX_S:.0f} s; keeping it")
     if live:
         await greet.set_position(2)
     await say("back to greet; done")
