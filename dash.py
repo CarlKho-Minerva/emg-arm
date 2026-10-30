@@ -183,185 +183,205 @@ def state():
         "robot": {"source": robot_picture()[2], "age": robot_picture()[3], "url": ROBOT_URL, "error": robot["error"]},
         "episodes": episode_stats(),
         "skully": read_json(os.path.join(DATA, "skully.json")),
+        "smile_out": tail(os.path.join(DATA, "smile.out"), 4),
     }
 
 
 PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>Served With a Smile</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-:root{--fg:#111;--mut:#666;--line:#e5e5e5;--bg:#fff;--card:#fafafa;--ok:#0a7d3b;--acc:#000;--warn:#b45309}
-@media(prefers-color-scheme:dark){:root{--fg:#ededed;--mut:#888;--line:#2a2a2a;--bg:#0a0a0a;--card:#111;--ok:#2fbf71;--acc:#fff;--warn:#f59e0b}}
-*{box-sizing:border-box}
-html,body{height:100%}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 -apple-system,Inter,system-ui,sans-serif;display:flex;flex-direction:column;overflow:hidden}
-header{display:flex;align-items:baseline;gap:20px;padding:12px 24px;border-bottom:1px solid var(--line);flex:0 0 auto}
-header h1{font-size:22px;font-weight:600;letter-spacing:-.02em;margin:0;white-space:nowrap}
-header .line{color:var(--mut);font-size:15px}
-header .line b{color:var(--fg);font-weight:500}
-header .right{margin-left:auto;color:var(--mut);font-size:13px;white-space:nowrap}
-main{flex:1 1 auto;display:grid;grid-template-columns:1fr 1fr;gap:0;min-height:0}
-section{display:flex;flex-direction:column;min-height:0;padding:14px 24px 16px;gap:10px}
-section+section{border-left:1px solid var(--line)}
+:root{--fg:#111;--mut:#666;--line:#e5e5e5;--bg:#fff;--card:#fafafa;--ok:#0a7d3b;--warn:#b45309;--bad:#b3261e;--acc:#2a78d6;--surf:#fcfcfb}
+@media(prefers-color-scheme:dark){:root{--fg:#ededed;--mut:#8a8a8a;--line:#2a2a2a;--bg:#0a0a0a;--card:#121212;--ok:#2fbf71;--warn:#f59e0b;--bad:#f0756b;--acc:#3987e5;--surf:#1a1a19}}
+*{box-sizing:border-box}html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 -apple-system,Inter,system-ui,sans-serif;display:grid;grid-template-columns:232px 1fr;overflow:hidden}
+nav{border-right:1px solid var(--line);padding:18px 14px;display:flex;flex-direction:column;gap:4px}
+nav h1{font-size:19px;font-weight:600;letter-spacing:-.02em;margin:0 8px 2px}
+nav .sub{color:var(--mut);font-size:12.5px;margin:0 8px 14px;line-height:1.35}
+nav button{all:unset;cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:9px 10px;border-radius:8px;font-size:14.5px;color:var(--fg)}
+nav button:hover{background:var(--card)}nav button.on{background:var(--fg);color:var(--bg)}
+nav button .dot{width:8px;height:8px;border-radius:50%;background:var(--line)}nav button .dot.ok{background:var(--ok)}nav button .dot.warn{background:var(--warn)}
+nav button.on .dot.ok{background:var(--ok)}
+nav .foot{margin-top:auto;color:var(--mut);font-size:12px;line-height:1.4;padding:0 8px}
+nav .foot b{color:var(--fg);font-weight:500}
+main{min-height:0;overflow:auto;padding:20px 28px 28px}
+section{display:none;flex-direction:column;gap:14px;min-height:100%}section.on{display:flex}
 .k{font-size:12px;color:var(--mut);letter-spacing:.04em;text-transform:uppercase;display:flex;align-items:baseline;gap:10px}
-.k .tag{margin-left:auto;text-transform:none;letter-spacing:0;font-variant-numeric:tabular-nums}
-.k .tag.ok{color:var(--ok)}.k .tag.warn{color:var(--warn)}
-h2{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0}
-.pic{flex:1 1 auto;min-height:140px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#000;position:relative}
+.k .tag{margin-left:auto;text-transform:none;letter-spacing:0;font-variant-numeric:tabular-nums}.k .tag.ok{color:var(--ok)}.k .tag.warn{color:var(--warn)}
+h2{font-size:22px;font-weight:600;letter-spacing:-.02em;margin:0}
+.lead{color:var(--mut);font-size:15px;max-width:72ch;margin:0}
+.pic{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#000;aspect-ratio:4/3;max-height:62vh}
 .pic img{display:block;width:100%;height:100%;object-fit:contain;background:#000}
-.card{border:1px solid var(--line);border-radius:8px;background:var(--card);padding:10px 14px;min-height:0}
-.log{flex:0 1 auto;max-height:34%;display:flex;flex-direction:column;min-height:0}
-.log table{width:100%;border-collapse:collapse;font-size:13.5px;font-variant-numeric:tabular-nums}
-.log td{padding:3px 6px 3px 0;border-bottom:1px solid var(--line);vertical-align:top;white-space:nowrap}
-.log td:last-child{white-space:normal}
-.log tr:last-child td{border-bottom:0}
-.log td.t{color:var(--mut);font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;width:72px}
-.log td.f{font-weight:500;width:150px}
-.log td.a{color:var(--mut)}
-.log tr:last-child td.a,.log tr:last-child td.f{color:var(--fg)}
-.log .rows{flex:1 1 auto;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;margin-top:6px;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 28px);mask-image:linear-gradient(to bottom,transparent 0,#000 28px)}
-.tiles{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:8px 0 6px}
-.tile{border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:var(--bg)}
-.tile .n{font-size:22px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-.tile .l{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
-.eps{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
-.eps td{padding:2px 6px 2px 0;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:top}
-.eps td:last-child{white-space:normal;color:var(--mut)}
-.eps td.t{color:var(--mut);font:11.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;width:62px}
-.eps td.ok{color:var(--ok);font-weight:600;width:14px}.eps td.no{color:var(--warn);font-weight:600;width:14px}.eps td.na{color:var(--mut);width:14px}
-.count{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);font-size:14px;color:var(--mut)}
-.count b{color:var(--fg);font-weight:600;font-size:16px}
-.empty{color:var(--mut);font-size:13.5px}
-.controls{overflow:hidden}.controls table{width:100%;border-collapse:collapse;font-size:12.5px;line-height:1.3}
-.controls td{padding:2px 8px 2px 0;border-bottom:1px solid var(--line);vertical-align:top}
-.controls tr:last-child td{border-bottom:0}
-.controls td.m{color:var(--mut);font-size:11px;letter-spacing:.04em;text-transform:uppercase;padding-top:7px}
-.controls td.g{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;width:44px;color:var(--mut);white-space:nowrap}
-.controls td.f{font-weight:500;width:128px;white-space:nowrap}
-.controls td.a{color:var(--mut)}
-.bottom{flex:0 1 auto;display:grid;grid-template-columns:3fr 2fr;gap:10px;min-height:0;overflow:hidden}
-.bars{display:flex;flex-direction:column;gap:8px;margin-top:4px}
-.bar{display:grid;grid-template-columns:52px 1fr 44px;align-items:center;gap:10px;font-size:13px}
-.bar .lab{color:var(--mut)}
-.bar .val{text-align:right;font-variant-numeric:tabular-nums;color:var(--mut)}
-.bar .tr{position:relative;height:10px;background:var(--line);border-radius:5px;overflow:visible}
-.bar .tr i{position:absolute;left:0;top:0;height:100%;background:var(--mut);border-radius:5px;width:0;transition:width .1s linear}
-.bar .tr i.on{background:var(--ok)}
+.card{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:12px 16px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+table{width:100%;border-collapse:collapse;font-size:13.5px;font-variant-numeric:tabular-nums}
+td{padding:4px 8px 4px 0;border-bottom:1px solid var(--line);vertical-align:top;white-space:nowrap}td:last-child{white-space:normal}tr:last-child td{border-bottom:0}
+td.t{color:var(--mut);font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;width:70px}
+td.f{font-weight:500;width:150px}td.a{color:var(--mut)}
+td.ok{color:var(--ok);font-weight:600;width:16px}td.no{color:var(--bad);font-weight:600;width:16px}td.na{color:var(--mut);width:16px}
+td.g{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;width:42px;color:var(--mut)}
+.checks td.name{font-weight:500;width:110px}
+.tiles{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.tile{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--bg)}
+.tile .n{font-size:28px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}.tile .l{font-size:11.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+.bars{display:flex;flex-direction:column;gap:10px}
+.bar{display:grid;grid-template-columns:56px 1fr 48px;align-items:center;gap:10px;font-size:13.5px}.bar .lab{color:var(--mut)}.bar .val{text-align:right;font-variant-numeric:tabular-nums;color:var(--mut)}
+.bar .tr{position:relative;height:10px;background:var(--line);border-radius:5px}.bar .tr i{position:absolute;left:0;top:0;height:100%;background:var(--mut);border-radius:5px;width:0;transition:width .1s linear}.bar .tr i.on{background:var(--ok)}
 .bar .tr b{position:absolute;top:-4px;width:2px;height:18px;background:var(--fg);margin-left:-1px;border-radius:1px}
-.heard{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;flex:1 1 auto;min-height:0}
-.heard .big{font-size:72px;font-weight:700;letter-spacing:-.04em;line-height:1;font-variant-numeric:tabular-nums;color:var(--ok);min-height:72px}
-.heard .big.idle{color:var(--line);font-size:48px}
-.heard .sub{color:var(--mut);font-size:13px;margin-top:8px;min-height:1.4em}
-.heard .last{font-size:14px;margin-top:4px}
-@media(max-width:900px){main{grid-template-columns:1fr;overflow:auto}section+section{border-left:0;border-top:1px solid var(--line)}body{overflow:auto}}
+.heard{text-align:center;padding:18px 0 8px}.heard .big{font-size:64px;font-weight:700;letter-spacing:-.04em;line-height:1;color:var(--ok);min-height:64px}.heard .big.idle{color:var(--line);font-size:44px}.heard .sub{color:var(--mut);font-size:13px;margin-top:8px}
+svg text{fill:var(--mut);font:11px -apple-system,Inter,system-ui,sans-serif}svg .ax{stroke:var(--line)}svg .pt{fill:var(--acc)}svg .pt.h{fill:none;stroke:var(--acc);stroke-width:1.5}
+svg .ok{fill:var(--ok)}svg .no{fill:var(--bad)}svg .na{fill:var(--mut)}
+.cap{color:var(--mut);font-size:12.5px;max-width:80ch;margin:4px 0 0}
+.story{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:22px;align-items:start}
+.story img{width:100%;border-radius:10px;border:1px solid var(--line);display:block}
+.story p{margin:0 0 12px;font-size:16px;line-height:1.55;max-width:60ch}
+.story .quiet{color:var(--mut);font-size:13.5px}
+pre.log{margin:0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--mut);white-space:pre-wrap}
+@media(max-width:900px){body{grid-template-columns:1fr;overflow:auto}nav{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)}nav .foot{display:none}.row,.story{grid-template-columns:1fr}.tiles{grid-template-columns:repeat(2,1fr)}}
 </style></head><body>
-<header>
+<nav>
   <h1>Served With a Smile</h1>
-  <div class="line">Meet Skully. He's dead hungry. <b>Left cheek:</b> fetch. <b>Right cheek:</b> feed Skully. <b>Smile:</b> let go. <b>Two smiles:</b> home.</div>
-  <div class="right" id="clock"></div>
-</header>
+  <div class="sub">Meet Skully. He's dead hungry.</div>
+  <button data-tab="robot" class="on"><span>What the robot sees</span><span class="dot" id="d_robot"></span></button>
+  <button data-tab="face"><span>Your face</span><span class="dot" id="d_face"></span></button>
+  <button data-tab="memory"><span>Episodic memory</span><span class="dot" id="d_memory"></span></button>
+  <button data-tab="story"><span>Why</span><span class="dot"></span></button>
+  <div class="foot"><b>Left cheek</b> fetch · <b>Right cheek</b> feed Skully · <b>Smile</b> let go · <b>Two smiles</b> home<br><br><span id="clock"></span></div>
+</nav>
 <main>
-<section>
-  <div class="k"><span>What the robot sees</span><span class="tag" id="robot_tag">-</span></div>
-  <div class="pic"><img id="robot" src="/robot.jpg" alt="robot camera"></div>
-  <div class="card log">
-    <div class="k"><span>What it did, as it wrote it (data/serve.log)</span><span class="tag" id="log_tag"></span></div>
-    <div class="rows"><table><tbody id="rows"></tbody></table><div class="empty" id="log_empty" style="display:none">nothing yet; serve.py writes a line for every face group it acts on</div></div>
-    <div class="count" id="count">episodes <b>0</b></div>
-  </div>
-  <div class="card" id="mongocard">
-    <div class="k"><span>MongoDB: the robot's episodic memory</span><span class="tag" id="mongo_tag">-</span></div>
-    <div class="tiles">
-      <div class="tile"><div class="n" id="t_total">0</div><div class="l">episodes</div></div>
-      <div class="tile"><div class="n" id="t_fetch">0/0</div><div class="l">fetch ok</div></div>
-      <div class="tile"><div class="n" id="t_feed">0/0</div><div class="l">Skully fed</div></div>
-      <div class="tile"><div class="n" id="t_refused">0</div><div class="l">refused</div></div>
-      <div class="tile"><div class="n" id="t_today">0</div><div class="l">today, live</div></div>
+<section id="robot" class="on">
+  <div><h2>What the robot sees</h2><p class="lead">The wrist camera, as the arm sees it, and every line the arm wrote as it acted. The feed runs only when five things are true; each is checked in order and shown here.</p></div>
+  <div class="row">
+    <div>
+      <div class="k"><span>Wrist camera</span><span class="tag" id="robot_tag">-</span></div>
+      <div class="pic"><img id="robot" src="/robot.jpg" alt="robot camera"></div>
     </div>
-    <table class="eps"><tbody id="eps"></tbody></table>
-    <div class="count" id="mongo" style="font-size:12.5px"></div>
+    <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+      <div class="card checks"><div class="k"><span>What the feed requires</span><span class="tag" id="checks_tag"></span></div><table><tbody id="checks"></tbody></table></div>
+      <div class="card"><div class="k"><span>What it did, as it wrote it</span><span class="tag" id="log_tag"></span></div><table><tbody id="rows"></tbody></table><div class="cap" id="log_empty" style="display:none">nothing yet; serve.py writes a line for every face event it acts on</div></div>
+    </div>
   </div>
 </section>
-<section>
-  <div class="k"><span>Your face</span><span class="tag" id="face_tag">-</span></div>
-  <div class="pic"><img id="face" src="/face.jpg" alt="your face"></div>
-  <div class="bottom">
-    <div class="card controls">
-      <div class="k">Controls</div>
-      <table><tbody id="controls"></tbody></table>
+<section id="face">
+  <div><h2>Your face is the controller</h2><p class="lead">The laptop camera turns a face into 52 numbers thirty times a second. A small model trained on 20 seconds of one person's face turns those into four events, counted in groups. The arm reads the events; it never sees this picture.</p></div>
+  <div class="row">
+    <div>
+      <div class="k"><span>Laptop camera</span><span class="tag" id="face_tag">-</span></div>
+      <div class="pic"><img id="face" src="/face.jpg" alt="your face"></div>
+      <pre class="log" id="smile_out" style="margin-top:8px"></pre>
     </div>
-    <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
-      <div class="card">
-        <div class="k"><span>Live, against your calibration</span><span class="tag" id="calib_tag"></span></div>
+    <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+      <div class="card heard"><div class="k" style="text-align:left">Hearing</div><div class="big idle" id="heard">...</div><div class="sub" id="heard_sub">listening</div><div class="cap" id="last"></div></div>
+      <div class="card"><div class="k"><span>Live, against the calibration</span><span class="tag" id="calib_tag"></span></div>
         <div class="bars">
           <div class="bar"><span class="lab">left</span><span class="tr"><i id="b_left"></i><b id="t_left"></b></span><span class="val" id="v_left">-</span></div>
           <div class="bar"><span class="lab">right</span><span class="tr"><i id="b_right"></i><b id="t_right"></b></span><span class="val" id="v_right">-</span></div>
           <div class="bar"><span class="lab">mouth</span><span class="tr"><i id="b_jaw"></i><b id="t_jaw"></b></span><span class="val" id="v_jaw">-</span></div>
-        </div>
-      </div>
-      <div class="card heard">
-        <div class="k" style="align-self:stretch">Hearing</div>
-        <div class="big idle" id="heard">...</div>
-        <div class="sub" id="heard_sub">listening</div>
-        <div class="last" id="last"></div>
-      </div>
+        </div></div>
+      <div class="card"><div class="k">Controls</div><table><tbody id="controls"></tbody></table></div>
+    </div>
+  </div>
+</section>
+<section id="memory">
+  <div><h2>Episodic memory</h2><p class="lead">One document per command in MongoDB Atlas: the gesture, what each camera saw, which checks passed, how it ended and how long it took. Thursday's picks, follower runs and handovers were backfilled with their real timestamps. Nothing here is typed by hand.</p></div>
+  <div class="k"><span>MongoDB</span><span class="tag" id="mongo_tag">-</span></div>
+  <div class="tiles">
+    <div class="tile"><div class="n" id="t_total">0</div><div class="l">episodes</div></div>
+    <div class="tile"><div class="n" id="t_fetch">0/0</div><div class="l">fetch, picked and proved</div></div>
+    <div class="tile"><div class="n" id="t_feed">0/0</div><div class="l">Skully fed</div></div>
+    <div class="tile"><div class="n" id="t_refused">0</div><div class="l">feeds refused</div></div>
+    <div class="tile"><div class="n" id="t_today">0</div><div class="l">live today</div></div>
+  </div>
+  <div class="row">
+    <div class="card"><div class="k">The follower's tracking error, run by run</div><div id="c_follow"></div>
+      <p class="cap">Forty 30-second runs on 29 October, one panel per kind of hand movement. Each dot is a run; its height is the typical distance of the hand from the centre of the picture (RMS, as a fraction of the frame; lower is better). Hollow dots are the held-out runs the controller was never tuned on. These runs chose the gains in the simulator: the kept setting scored -0.038 held out, the runner-up -0.066.</p></div>
+    <div class="card"><div class="k">Every episode, in time</div><div id="c_time"></div>
+      <p class="cap">Each mark is one episode at the minute it started, grouped by what the arm was asked to do. A filled green mark ended as intended; red did not; grey has no outcome on disk (a recording with no verdict, or a practice round whose grip check was later found untrustworthy). Hover for the reason.</p></div>
+  </div>
+  <div class="card"><div class="k"><span>The last episodes</span><span class="tag" id="eps_tag"></span></div><table><tbody id="eps"></tbody></table><p class="cap" id="mongo"></p></div>
+</section>
+<section id="story">
+  <div><h2>Why a smile</h2></div>
+  <div class="story">
+    <img src="/story.jpg" alt="A woman in a wheelchair being helped to eat">
+    <div>
+      <p>For most of us, bringing food to the mouth is the part of eating we never notice. For someone with a cervical spinal cord injury, the cord is damaged in the neck, the arms and hands are mostly paralysed, and that part belongs to another person.</p>
+      <p>The face usually still works. A half-smile is a decision. This robot takes the decision from the face and does the movement itself.</p>
+      <p>Skully stands in for the person while the feed is tested. The next input is the electrical signal of the facial muscles, read by two pads on the cheeks, for a face that barely moves. The pads and the board are on the table; the arm side does not change.</p>
+      <p class="quiet">Stock photograph; the person shown is not a patient of this project and no diagnosis is implied. Skully is a Halloween skull.</p>
     </div>
   </div>
 </section>
 </main>
 <script>
 const CONTROLS=%CONTROLS%;
-document.getElementById('controls').innerHTML=CONTROLS.map(c=>c[1]==null?`<tr><td class="m" colspan="3">${c[0]}</td></tr>`:`<tr><td class="g">${c[0]}</td><td class="f">${c[1]}</td><td class="a">${c[2]}</td></tr>`).join('');
 const $=id=>document.getElementById(id);
-const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-function bar(name,val,thr){
-  const b=$('b_'+name),t=$('t_'+name),v=$('v_'+name);
-  const have=typeof val==='number';
-  b.style.width=have?(Math.min(val,1)*100)+'%':'0';
-  b.className=(have&&typeof thr==='number'&&val>=thr)?'on':'';
-  t.style.display=typeof thr==='number'?'':'none'; if(typeof thr==='number')t.style.left=(Math.min(thr,1)*100)+'%';
-  v.textContent=have?val.toFixed(2):'-';
+const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+document.getElementById('controls').innerHTML=CONTROLS.map(c=>c[1]==null?`<tr><td class="a" colspan="3" style="padding-top:8px;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em">${c[0]}</td></tr>`:`<tr><td class="g">${c[0]}</td><td class="f">${c[1]}</td><td class="a">${c[2]}</td></tr>`).join('');
+document.querySelectorAll('nav button[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button[data-tab]').forEach(x=>x.classList.toggle('on',x===b));document.querySelectorAll('main section').forEach(s=>s.classList.toggle('on',s.id===b.dataset.tab));try{localStorage.setItem('tab',b.dataset.tab)}catch(e){}});
+try{const t=localStorage.getItem('tab');if(t)document.querySelector(`nav button[data-tab="${t}"]`)?.click();}catch(e){}
+document.addEventListener('keydown',e=>{const m={'1':'robot','2':'face','3':'memory','4':'story'};if(m[e.key])document.querySelector(`nav button[data-tab="${m[e.key]}"]`).click();});
+function bar(name,val,thr){const b=$('b_'+name),t=$('t_'+name),v=$('v_'+name);const have=typeof val==='number';b.style.width=have?(Math.min(val,1)*100)+'%':'0';b.className=(have&&typeof thr==='number'&&val>=thr)?'on':'';t.style.display=typeof thr==='number'?'':'none';if(typeof thr==='number')t.style.left=(Math.min(thr,1)*100)+'%';v.textContent=have?val.toFixed(2):'-';}
+function fmtAge(a){if(a==null)return '?';if(a<60)return a.toFixed(0)+' s';if(a<3600)return (a/60).toFixed(0)+' min';return (a/3600).toFixed(1)+' h';}
+function wordsOf(g){const w={L:'left cheek',R:'right cheek',B:'full smile',M:'mouth open'};return g.split('').map(ch=>w[ch]||ch).join(', ');}
+function hhmm(t){return new Date(t*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
+function followChart(runs){
+  const tags=['still','slow','fast','cross','exit','rest'];const W=300,H=120,P={l:30,r:8,t:14,b:22};
+  const vals=runs.map(r=>r.rms).filter(v=>typeof v==='number');if(!vals.length)return '<p class="cap">no follower runs</p>';
+  const ymax=Math.max(0.2,Math.ceil(Math.max(...vals)*20)/20);
+  return `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">`+tags.map(tag=>{
+    const rs=runs.filter(r=>r.tag===tag);const n=Math.max(rs.length,1);
+    const x=i=>P.l+(W-P.l-P.r)*(rs.length>1?i/(rs.length-1):0.5), y=v=>P.t+(H-P.t-P.b)*(1-v/ymax);
+    const ticks=[0,ymax/2,ymax];
+    return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${tag}: ${rs.length} runs">
+      <text x="${P.l}" y="10" style="fill:var(--fg);font-weight:600">${tag}</text><text x="${W-P.r}" y="10" text-anchor="end">${rs.length} runs</text>
+      ${ticks.map(v=>`<line class="ax" x1="${P.l}" x2="${W-P.r}" y1="${y(v)}" y2="${y(v)}"/><text x="${P.l-4}" y="${y(v)+3.5}" text-anchor="end">${v.toFixed(2)}</text>`).join('')}
+      ${rs.map((r,i)=>typeof r.rms==='number'?`<circle class="pt ${r.held_out?'h':''}" cx="${x(i)}" cy="${y(r.rms)}" r="4.5"><title>${tag} run ${i+1} at ${hhmm(r.t)}: RMS ${r.rms}, lost ${Math.round((r.lost||0)*100)}% of frames, reward ${r.reward}${r.held_out?' (held out)':''}</title></circle>`:'').join('')}
+      <text x="${(P.l+W-P.r)/2}" y="${H-6}" text-anchor="middle">runs in order</text></svg>`;}).join('')+`</div>`;
 }
+function timeChart(tl){
+  if(!tl.length)return '<p class="cap">no episodes</p>';
+  const kinds=[...new Set(tl.map(e=>e.kind))];const W=620,rowH=22,P={l:92,r:10,t:18,b:22};const H=P.t+P.b+rowH*kinds.length;
+  const t0=Math.min(...tl.map(e=>e.t)),t1=Math.max(...tl.map(e=>e.t))+60;const x=t=>P.l+(W-P.l-P.r)*((t-t0)/(t1-t0));
+  const step=(t1-t0)>6*3600?3600:1800;const ticks=[];for(let t=Math.ceil(t0/step)*step;t<t1;t+=step)ticks.push(t);
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="episodes over time">
+    ${ticks.map(t=>`<line class="ax" x1="${x(t)}" x2="${x(t)}" y1="${P.t}" y2="${H-P.b}"/><text x="${x(t)}" y="${H-7}" text-anchor="middle">${hhmm(t)}</text>`).join('')}
+    ${kinds.map((k,i)=>`<text x="${P.l-8}" y="${P.t+rowH*i+rowH/2+4}" text-anchor="end" style="fill:var(--fg)">${esc(k)}</text><line class="ax" x1="${P.l}" x2="${W-P.r}" y1="${P.t+rowH*i+rowH/2}" y2="${P.t+rowH*i+rowH/2}"/>`).join('')}
+    ${tl.map(e=>{const i=kinds.indexOf(e.kind);const cy=P.t+rowH*i+rowH/2;const cls=e.ok===true?'ok':e.ok===false?'no':'na';const cx=x(e.t);
+      const shape=e.ok===true?`<circle class="${cls}" cx="${cx}" cy="${cy}" r="5"/>`:e.ok===false?`<rect class="${cls}" x="${cx-4.5}" y="${cy-4.5}" width="9" height="9" transform="rotate(45 ${cx} ${cy})"/>`:`<circle class="${cls}" cx="${cx}" cy="${cy}" r="4" fill-opacity=".55"/>`;
+      return `<g>${shape}<title>${hhmm(e.t)} ${esc(e.kind)}: ${e.ok===true?'done':e.ok===false?'not done':'no outcome on disk'}. ${esc(e.reason)}${e.duration_s?` (${e.duration_s} s)`:''}${e.source!=='live'?' ['+esc(e.source)+']':''}</title></g>`;}).join('')}
+  </svg>`;
+}
+let lastSig='';
 async function tick(){
   let s; try{s=await (await fetch('/state')).json();}catch(e){return;}
   const rows=s.serve||[];
-  $('rows').innerHTML=rows.map(r=>`<tr><td class="t">${r.time}</td><td class="f">${esc(r.face)}</td><td class="a">${esc(r.action)}</td></tr>`).join('');
-  $('log_empty').style.display=rows.length?'none':'';
-  $('log_tag').textContent=rows.length?(s.counts.lines>rows.length?`last ${rows.length} of ${s.counts.lines}`:`${rows.length} lines`):'';
-  const ep=s.episodes||{}, bk=ep.by_kind||{};
-  const k=n=>bk[n]||{attempts:0,ok:0,refused:0};
-  $('count').innerHTML=`episodes <b>${ep.total||0}</b>: ${ep.live||0} live today, ${ep.backfill||0} backfilled from Thursday's logs`;
-  $('t_total').textContent=ep.total||0; $('t_fetch').textContent=`${k('fetch').ok}/${k('fetch').attempts}`;
-  $('t_feed').textContent=`${k('feed_skully').ok}/${k('feed_skully').attempts}`; $('t_refused').textContent=k('feed_skully').refused; $('t_today').textContent=ep.live||0;
-  const last=ep.last||[];
-  $('eps').innerHTML=last.map(e=>`<tr><td class="t">${e.t_start?new Date(e.t_start*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}):''}</td><td class="${e.ok===true?'ok':e.ok===false?'no':'na'}">${e.ok===true?'&#10003;':e.ok===false?'&#10007;':'?'}</td><td>${esc(e.kind||'')}</td><td>${esc(e.trigger||'')}</td><td>${esc(e.reason||'')}${e.duration_s?` (${e.duration_s} s)`:''}${e.source&&e.source!=='live'?` <i>${esc(e.source)}</i>`:''}</td></tr>`).join('');
-  const mg=ep.mongo||{}; const ax=s.skully||{};
-  $('mongo_tag').textContent=mg.ok?`${mg.which==='local'?'local MongoDB':'Atlas'} connected, ${mg.synced} synced`:`MongoDB unreachable (Atlas clusters gone, no local mongod yet); ${mg.queued} queued on disk`;
-  $('mongo_tag').className='tag '+(mg.ok?'ok':'warn');
-  $('mongo').innerHTML=`${mg.db||''}.${mg.collection||''} &middot; one document per command: gesture, what the camera saw, the three checks, outcome, duration. Local mirror data/serve_episodes.jsonl is written first; MongoDB gets every unsynced document when a connection succeeds.`+(ax.t?`<br>Skully: ${ax.seen?(ax.stable?'<span style="color:var(--ok)">still</span>':'<span style="color:var(--warn)">moving '+(ax.moved_mm||0).toFixed(0)+' mm</span>'):'not seen'}, ${fmtAge(Date.now()/1000-ax.t)} ago`+(ax.x!=null?` at x=${ax.x.toFixed(0)} y=${ax.y.toFixed(0)}`:''):'');
-  const rb=s.robot||{};
-  $('robot_tag').textContent=rb.source==='box'?'live from the box':rb.source==='file'?`last picture on disk, ${fmtAge(rb.age)} old`:'robot offline';
-  $('robot_tag').className='tag '+(rb.source==='box'?'ok':'warn');
-  const f=s.face||{}, c=s.calib||{};
-  const fresh=typeof s.face_age==='number'&&s.face_age<2;
+  $('rows').innerHTML=rows.slice(-8).map(r=>`<tr><td class="t">${r.time}</td><td class="f">${esc(r.face)}</td><td class="a">${esc(r.action)}</td></tr>`).join('');
+  $('log_empty').style.display=rows.length?'none':'';$('log_tag').textContent=rows.length?`${s.counts.lines} lines`:'';
+  const rb=s.robot||{};const robotLive=rb.source==='box'||(rb.source==='file'&&rb.age<3);
+  $('robot_tag').textContent=robotLive?'live':rb.source==='file'?`last picture ${fmtAge(rb.age)} old`:'robot offline';$('robot_tag').className='tag '+(robotLive?'ok':'warn');$('d_robot').className='dot '+(robotLive?'ok':'warn');
+  const sk=s.skully||{};const checks=sk.checks||[];
+  $('checks').innerHTML=(checks.length?checks:[{name:'seen',what:'the blue tape on Skully\'s nose is in view from home'},{name:'in reach',what:'530 to 800 mm from the base'},{name:'holding',what:'a cube is between the fingers'},{name:'re-found',what:'seen again from the hover above him'},{name:'path',what:'the planner finds a way in and out'}]).map(c=>`<tr><td class="${c.ok===true?'ok':c.ok===false?'no':'na'}">${c.ok===true?'&#10003;':c.ok===false?'&#10007;':'·'}</td><td class="name">${esc(c.name)}</td><td class="a">${esc(c.what)}</td></tr>`).join('');
+  $('checks_tag').textContent=sk.t?(sk.fed?'fed, '+fmtAge(Date.now()/1000-sk.t)+' ago':sk.seen===false?'not seen, '+fmtAge(Date.now()/1000-sk.t)+' ago':(sk.dist?`Skully ${sk.dist.toFixed(0)} mm from the base, `:'')+fmtAge(Date.now()/1000-sk.t)+' ago'):'no attempt yet';
+  const f=s.face||{}, c=s.calib||{};const fresh=typeof s.face_age==='number'&&s.face_age<2;
   $('face_tag').textContent=fresh?(f.left==null?'camera on, no face seen':'face seen'):(s.face_age==null?'smile.py not running':`smile.py stopped ${fmtAge(s.face_age)} ago`);
-  $('face_tag').className='tag '+(fresh&&f.left!=null?'ok':'warn');
-  bar('left',fresh?f.left:null,c.up_left); bar('right',fresh?f.right:null,c.up_right); bar('jaw',fresh?f.jaw:null,c.jaw_open);
-  $('calib_tag').textContent=c.at?`calibrated ${c.at.slice(0,10)===new Date().toISOString().slice(0,10)||c.at.slice(0,10)===localDay()?c.at.slice(11):c.at}`:'no calibration (defaults)';
-  const g=fresh?(f.group||''):'', holding=fresh?f.holding:null;
-  const h=$('heard');
-  if(g){h.textContent=g;h.className='big';$('heard_sub').textContent=wordsOf(g);}
-  else if(holding){h.textContent=holding;h.className='big';$('heard_sub').textContent='holding '+wordsOf(holding);}
-  else{h.textContent='...';h.className='big idle';$('heard_sub').textContent=fresh?'listening':'';}
-  const l=s.last_heard; $('last').textContent=l?`last heard ${l.group} (${l.face}) ${fmtAge(l.age)} ago`:'';
+  $('face_tag').className='tag '+(fresh&&f.left!=null?'ok':'warn');$('d_face').className='dot '+(fresh&&f.left!=null?'ok':'warn');
+  $('smile_out').textContent=fresh?'':(s.smile_out||[]).join('\n');
+  bar('left',fresh?f.left:null,c.up_left);bar('right',fresh?f.right:null,c.up_right);bar('jaw',fresh?f.jaw:null,c.jaw_open);
+  $('calib_tag').textContent=c.at?`calibrated ${c.at}`:'no calibration (defaults)';
+  const g=fresh?(f.group||''):'',holding=fresh?f.holding:null;const h=$('heard');
+  if(g){h.textContent=g;h.className='big';$('heard_sub').textContent=wordsOf(g);}else if(holding){h.textContent=holding;h.className='big';$('heard_sub').textContent='holding '+wordsOf(holding);}else{h.textContent='...';h.className='big idle';$('heard_sub').textContent=fresh?'listening':'';}
+  const l=s.last_heard;$('last').textContent=l?`last heard ${l.group} (${l.face}) ${fmtAge(l.age)} ago`:'';
+  const ep=s.episodes||{},bk=ep.by_kind||{};const k=n=>bk[n]||{attempts:0,ok:0,refused:0};
+  $('t_total').textContent=ep.total||0;$('t_fetch').textContent=`${k('fetch').ok}/${k('fetch').attempts}`;$('t_feed').textContent=`${k('feed_skully').ok}/${k('feed_skully').attempts}`;$('t_refused').textContent=k('feed_skully').refused;$('t_today').textContent=ep.live||0;
+  const mg=ep.mongo||{};$('mongo_tag').textContent=mg.ok?`${mg.which==='local'?'local MongoDB':'Atlas'} connected, ${mg.synced} synced`:`MongoDB unreachable; ${mg.queued} queued on disk`;$('mongo_tag').className='tag '+(mg.ok?'ok':'warn');$('d_memory').className='dot '+(mg.ok?'ok':'warn');
+  $('mongo').textContent=`${mg.db||''}.${mg.collection||''}. The file data/serve_episodes.jsonl is written first; every unsynced document goes up on the next connection.`;
+  const last=ep.last||[];$('eps_tag').textContent=`${ep.live||0} live today, ${ep.backfill||0} backfilled`;
+  $('eps').innerHTML=last.map(e=>`<tr><td class="t">${e.t_start?new Date(e.t_start*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}):''}</td><td class="${e.ok===true?'ok':e.ok===false?'no':'na'}">${e.ok===true?'&#10003;':e.ok===false?'&#10007;':'?'}</td><td class="f">${esc(e.kind)}</td><td class="g">${esc(e.trigger)}</td><td class="a">${esc(e.reason)}${e.duration_s?` (${e.duration_s} s)`:''}${e.source&&e.source!=='live'?` <i>${esc(e.source)}</i>`:''}</td></tr>`).join('');
+  const sig=`${ep.total}|${(ep.follow_runs||[]).length}`;if(sig!==lastSig){lastSig=sig;$('c_follow').innerHTML=followChart(ep.follow_runs||[]);$('c_time').innerHTML=timeChart(ep.timeline||[]);}
 }
-function wordsOf(g){const w={L:'smile left',R:'smile right',B:'full smile',M:'mouth open'};return g.split('').map(ch=>w[ch]||ch).join(', ');}
-function localDay(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
-function fmtAge(a){if(a==null)return '?';if(a<60)return a.toFixed(0)+' s';if(a<3600)return (a/60).toFixed(0)+' min';return (a/3600).toFixed(1)+' h';}
 function swap(id,url){const img=$(id);const n=new Image();n.onload=()=>{img.src=n.src;};n.src=url+'?'+Date.now();}
-setInterval(()=>swap('robot','/robot.jpg'),150);
-setInterval(()=>swap('face','/face.jpg'),120);
-setInterval(tick,250);tick();
-setInterval(()=>{$('clock').textContent=new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});},1000);
+setInterval(()=>swap('robot','/robot.jpg'),150);setInterval(()=>swap('face','/face.jpg'),120);setInterval(tick,300);tick();
+setInterval(()=>{$('clock').textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});},1000);
 </script></body></html>"""
 
 
@@ -389,6 +409,11 @@ class H(BaseHTTPRequestHandler):
             elif path == "/face.jpg":
                 body, ctype, age = face_picture()
                 self._send(body, ctype, {"X-Age": f"{age:.1f}" if age is not None else "none"})
+            elif path == "/story.jpg":
+                try:
+                    self._send(open(os.path.join(DATA, "story.jpg"), "rb").read(), "image/jpeg")
+                except OSError:
+                    self.send_response(404); self.send_header("Content-Length", "0"); self.end_headers()
             elif path == "/state":
                 self._send(json.dumps(state()))
             elif path == "/":
