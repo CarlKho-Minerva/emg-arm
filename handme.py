@@ -42,7 +42,7 @@ REPLAN_MM = 50.0      # re-plan when the hand has moved more than this
 STEADY_PX = 0.06      # smoothed hand moves less than this (fraction of the picture) between frames = still
 STEADY_S = 0.6        # still for this long before ranging and moving
 TAKE_SIZE = 0.18      # wrist-to-knuckle over this fraction of the picture width = the palm is close under the claw
-TAKE_CENTRE = 0.22    # ...and within this of the picture centre (under the gripper)
+TAKE_CENTRE = 0.18    # ...and within this of the gripper's point in the picture
 TAKE_S = 0.7          # ...for this long: let go
 DROP_ABOVE = 120.0    # mm above the palm for the claw pose
 DWELL_S = 2.0         # hand still, arm at the standoff, for this long: let go
@@ -133,6 +133,7 @@ async def handover(rig):
         await arm.do_command({"set_speed": 60.0, "set_acceleration": 200.0})
     sm = None; still_since = None; frame_n = 0; body_cache = (None, None, None)
     at_target = None; last_seen = 0.0; seen_n = 0; last_beat = 0.0; big_since = None
+    under = (0.5, 0.5)
     pending = None
     adx = ady = 0.0
     t_start = time.time()
@@ -165,7 +166,7 @@ async def handover(rig):
             seen_n += 1; last_seen = time.time()
             # "take it": only once the arm is above the palm (claw pose), and the palm is centred under it
             # and big in the picture; TAKE_S of that and it opens. Never while still following.
-            ex0, ey0 = raw[0] - 0.5, raw[1] - 0.5
+            ex0, ey0 = raw[0] - under[0], raw[1] - under[1]
             if at_target and F.LAST_SIZE >= TAKE_SIZE and abs(ex0) < TAKE_CENTRE and abs(ey0) < TAKE_CENTRE:
                 big_since = big_since or time.time()
                 if time.time() - big_since >= TAKE_S:
@@ -180,7 +181,8 @@ async def handover(rig):
                 big_since = None
             prev = sm
             sm = raw if sm is None else (sm[0] + SMOOTH * (raw[0] - sm[0]), sm[1] + SMOOTH * (raw[1] - sm[1]))
-            ex, ey = sm[0] - 0.5, sm[1] - 0.5
+            ref = under if at_target else (0.5, 0.5)
+            ex, ey = sm[0] - ref[0], sm[1] - ref[1]
             centred = abs(ex) < DEADBAND and abs(ey) < DEADBAND
             moving = prev is not None and math.dist(sm, prev) > STEADY_PX
             if moving:
@@ -222,6 +224,15 @@ async def handover(rig):
                     except Exception as e:
                         await say(f"direct move refused: {str(e)[:80]}"); still_since = None; continue
                 at_target = time.time(); still_since = time.time()
+                # where the gripper's axis meets the palm plane, as seen by the camera: the point the palm must
+                # sit on (the lens is 7 cm beside the gripper, so it is not the picture's centre)
+                try:
+                    gp = (await machine.transform_pose(PoseInFrame(reference_frame="world", pose=Pose(x=tx, y=ty, z=hz, o_z=1)), "cam")).pose
+                    under = ((intr.focal_x_px * gp.x / gp.z + intr.center_x_px) / intr.width_px,
+                             (intr.focal_y_px * gp.y / gp.z + intr.center_y_px) / intr.height_px)
+                    await say(f"   the gripper is over picture point ({under[0]:.2f},{under[1]:.2f}); the palm must sit there")
+                except Exception as e:
+                    await say(f"   could not project the gripper into the picture ({str(e)[:50]}); using the centre")
                 continue
             # phase 3: above the palm; keep nudging to stay centred over it (small pan/tilt only)
             if at_target and live and not centred and time.time() - at_target > 1.0:
