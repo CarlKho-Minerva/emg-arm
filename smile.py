@@ -55,6 +55,36 @@ def smile_scores(result):
     return right, left      # mirrored frame: the model's "Left" is Carl's right (checked on his face, 29 Oct 19:50)
 
 
+# landmark indices of the face mesh: mouth corners, inner lips, outer eye corners, nose tip
+_CORNERS, _LIP_TOP, _LIP_BOT, _EYE_A, _EYE_B, _NOSE = (61, 291), 13, 14, 33, 263, 1
+
+
+def geo_features(result):
+    """Six numbers from the face mesh itself, not from how the picture looks: for each mouth corner, how far it
+    sits above the lip midline (roll-corrected, divided by the eye-to-eye distance); their difference; the jaw
+    gap; a yaw term (nose offset from the eye midpoint). Sides are by picture position in the mirrored frame,
+    so "left" is the person's left. These ride along with the 52 blendshapes into the classifier, so a head
+    turned toward a judge does not move the decision the way raw thresholds did (Carl, 30 Oct 14:26)."""
+    import math
+    if not result.face_landmarks:
+        return {}
+    lm = result.face_landmarks[0]
+    ax, ay = lm[_EYE_A].x, lm[_EYE_A].y; bx, by = lm[_EYE_B].x, lm[_EYE_B].y
+    scale = math.hypot(bx - ax, by - ay) or 1e-6
+    roll = math.atan2(by - ay, bx - ax)
+    c, s_ = math.cos(-roll), math.sin(-roll)
+    def rot(i):
+        x, y = lm[i].x - ax, lm[i].y - ay
+        return (x * c - y * s_) / scale, (x * s_ + y * c) / scale
+    corners = sorted((rot(i) for i in _CORNERS), key=lambda q: q[0])     # by x: picture-left first = person's left
+    (lx, ly), (rx, ry) = corners
+    tx, ty = rot(_LIP_TOP); bx2, by2 = rot(_LIP_BOT); nx, ny = rot(_NOSE)
+    mid_y = 0.5 * (ty + by2)
+    ex = 0.5 * ((bx - ax) * c) / scale          # eye midpoint x in the rotated frame
+    return {"geo_raise_left": mid_y - ly, "geo_raise_right": mid_y - ry, "geo_raise_diff": (mid_y - ly) - (mid_y - ry),
+            "geo_jaw": by2 - ty, "geo_yaw": nx - ex, "geo_width": rx - lx}
+
+
 def write_group(group):
     os.makedirs(os.path.dirname(LOG), exist_ok=True)
     with open(LOG, "a") as f:
@@ -82,7 +112,7 @@ def card(frame, title, lines, colour=(255, 255, 255)):
     return frame
 
 
-def calibrate(cam=0, seconds=3.0):
+def calibrate(cam=0, seconds=4.5):
     """Measure Carl's own rest and gestures in the window, coach-style: one instruction at a time, a
     countdown, a bar, then a card with the numbers. Thresholds halfway between rest and the gesture."""
     import json, statistics
@@ -90,8 +120,10 @@ def calibrate(cam=0, seconds=3.0):
     cap = open_camera(cam)
     win = "Served With a Smile: calibration"
     t0 = time.time(); results = {}; frames = []
-    steps = [("rest", "RELAX. Straight face."), ("left", "Pull your LEFT cheek up. A smirk."), ("right", "Pull your RIGHT cheek up."),
-             ("both", "Full smile, both sides."), ("mouth", "Open your mouth.")]
+    steps = [("rest", "RELAX. Straight face. Turn your head slowly left and right."), ("left", "Pull your LEFT cheek up and hold. Turn your head slowly."),
+             ("right", "Pull your RIGHT cheek up and hold. Turn your head slowly."), ("both", "Full smile, both sides. Turn your head slowly."),
+             ("mouth", "Open your mouth. Turn your head slowly.")]
+    session = time.strftime("%Y%m%d-%H%M%S")
     def show(frame, title, lines, colour=(255, 255, 255)):
         cv2.imshow(win, card(cv2.flip(frame, 1), title, lines, colour)); cv2.waitKey(1)
     ok, frame = cap.read()
@@ -112,8 +144,9 @@ def calibrate(cam=0, seconds=3.0):
             if sc:
                 ls.append(sc[0]); rs.append(sc[1])
                 d = {b.category_name: b.score for b in res.face_blendshapes[0]}
+                d.update(geo_features(res))
                 js.append(d.get("jawOpen", 0.0))
-                frames.append({"label": name, "t": time.time(), "shapes": d})
+                frames.append({"label": name, "t": time.time(), "session": session, "shapes": d})
             left = seconds - (time.time() - t_start)
             img = card(fr, f"Step {n} of {len(steps)}: {instruction}", [f"hold it... {left:.1f} s", "" if sc else "NO FACE SEEN"], (0, 200, 90))
             hh, ww = img.shape[:2]
@@ -130,7 +163,7 @@ def calibrate(cam=0, seconds=3.0):
         "up_right": mid(r["right"], results.get("right", {}).get("right", r["right"] + 0.4)),
         "down": max(r["left"], r["right"]) + 0.03,
         "jaw_open": mid(r["jaw"], results.get("mouth", {}).get("jaw", r["jaw"] + 0.4)),
-        "measured": results, "at": time.strftime("%Y-%m-%d %H:%M"),
+        "measured": results, "at": time.strftime("%Y-%m-%d %H:%M"), "session": session,
     }
     os.makedirs(os.path.dirname(CALIB), exist_ok=True)
     json.dump(calib, open(CALIB, "w"), indent=1)
@@ -282,7 +315,9 @@ def main(window=True, cam=0):
         label = None
         if model and res.face_blendshapes:
             from train_face import predict
-            label, _ = predict(model, {b.category_name: b.score for b in res.face_blendshapes[0]}, rest_margin=0.2)
+            shapes = {b.category_name: b.score for b in res.face_blendshapes[0]}
+            shapes.update(geo_features(res))
+            label, _ = predict(model, shapes, rest_margin=0.2)
         if sc and res.face_blendshapes:
             jaw = {b.category_name: b.score for b in res.face_blendshapes[0]}.get("jawOpen", 0.0)
             if jaw > jaw_open and not mouth_up and now - mouth_at > 2.0:

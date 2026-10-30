@@ -17,8 +17,16 @@ MODEL = os.path.join(HERE, "data", "face_model.json")
 LABELS = ("rest", "left", "right", "both", "mouth")
 
 
-def load():
+def load(all_sessions=False):
+    """Frames of the newest calibration pass only (the one with head turning, 30 Oct), unless all_sessions.
+    Mixing an old pass without the geometry features in would teach the model that missing features mean
+    something; they mean the pass was older."""
     rows = [json.loads(l) for l in open(FRAMES) if l.strip()]
+    sessions = [r.get("session") for r in rows if r.get("session")]
+    if sessions and not all_sessions:
+        newest = max(sessions)
+        rows = [r for r in rows if r.get("session") == newest]
+        print(f"training on calibration {newest} ({len(rows)} frames)")
     names = sorted({k for r in rows for k in r["shapes"]})
     X = [[r["shapes"].get(n, 0.0) for n in names] for r in rows]
     y = [r["label"] for r in rows]
@@ -63,7 +71,9 @@ def predict(model, shapes, rest_margin=0.0):
 
 
 def main():
-    names, X, y = load()
+    import sys
+    names, X, y = load(all_sessions="--all" in sys.argv)
+    print("features:", len(names), "including geometry" if any(n.startswith("geo_") for n in names) else "(blendshapes only)")
     idx = list(range(len(X))); random.Random(0).shuffle(idx)
     cut = int(len(idx) * 0.7)
     tr, te = idx[:cut], idx[cut:]
