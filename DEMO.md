@@ -181,3 +181,22 @@ Nudge mode (manual, 30 mm per step):
 
 The camera keeps: centring over the cube, which hand is Carl's, the sideways lift proof.
 One sentence: "I fed myself with my face: one smile to fetch, one to bring it to my mouth, one to say I'm done."
+
+
+## Friday, the real first hour (rewritten Thu 29 Oct 23:05: the face is the Mac camera, not pads)
+
+Thursday night the control channel became the MacBook camera: the face model gives left cheek, right cheek,
+full smile and open mouth as numbers; no pads, no soldering. The EMG board stays the next step (a sentence
+in the pitch: "the same controls from muscle signals, for a face that barely moves").
+
+1. 9:00 Robot on. Terminal: `open run_calibrate.command` (20 s: rest, left cheek, right cheek, smile,
+   open mouth; the window coaches you). Then `.venv/bin/python train_face.py` (one second; prints held-out
+   accuracy; want over 95%). Then `open run_smile.command`: the live window with the controls panel.
+2. 9:10 `.venv/bin/python serve.py --live --cube green` on the Mac (or on the box). Left cheek: fetch.
+   Open mouth: feed (follows your face, holds the cube 22 cm from your mouth 2 s, puts it back). Right
+   cheek: palm handover. Full smile: let go. Three smiles: home. Never run yet live: the feed. Test it
+   first with a hand on the red button.
+3. 9:40 `open run_dash.command`: the demo screen on http://localhost:8790 (robot view + honest log on the
+   left, your face + controls on the right). Put the Mac beside the arm facing the judges.
+4. 10:30 Three runs hands-behind-the-back, counted. Rehearse the 60 s script over one.
+5. 12:00 Decide: face demo, or palm demo if the feed misbehaves.

@@ -5,6 +5,16 @@ Viam x MongoDB Robot Hackathon, SF, 29 to 30 Oct 2026. Solo entry by Carl Kho (S
 A UFactory xArm 6 that finds Carl by camera, follows his arm, and (next) takes orders from his
 face muscles through a Cerelog EMG board. No hands, no voice.
 
+## Served With a Smile (Thu 29 Oct, 23:00)
+
+The demo is face-controlled from the MacBook camera. `smile.py` reads the face model's numbers (left cheek,
+right cheek, full smile, open mouth), calibrates to the person in 20 s (`--calibrate`), optionally trains a
+personal classifier (`train_face.py`, logistic regression on the 52 face numbers), and writes counted groups
+(L, R, B, BB, BBB, M) to `data/face.log`. `serve.py --live` turns them into arm behaviour: L fetch the cube,
+M feed (follow the face, hold the cube in front of the mouth, take it back), R palm handover, B let go, BBB
+home, BB nudge mode. `dash.py` is the screen beside the arm. Verified live Thursday: L fetch (twice), B let go,
+R handover; not yet verified live: M feed. Run-of-show in DEMO.md.
+
 ## Status, end of day 1 (29 Oct, 18:58)
 
 **The demo works, verified:** `.venv/bin/python pick.py --live --cube green` goes to greet, looks at the
