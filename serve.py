@@ -321,7 +321,7 @@ async def handle(rig, g, mode, following, fstate, steering, live, cube, face_fee
                 await say("fetched; at greet" if ok else "could not fetch")
         elif g in ("R", "B") and SKULLY_MODE == "extend":
             ep = Episode.start("feed_skully", g, mode=mode, how="extend")
-            if not await holding(rig):
+            if not following and not await holding(rig):          # while following, the feed runs whatever the fingers hold (Carl's test, 15:45)
                 if g == "B":
                     log(g, "let go (nothing held)"); ep.end(True, "opened, nothing held")
                     if live:
