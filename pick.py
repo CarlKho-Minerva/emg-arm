@@ -21,6 +21,7 @@ import time
 from viam.proto.common import Pose, PoseInFrame
 
 from bottle import MAX_REACH, find_bottles
+from camgrab import grab
 from handme import Rig, StepTimeout, handover, say, step
 from viamarm import connect
 
@@ -39,8 +40,33 @@ CUBE_PASSES = 3        # look-descend passes per attempt before going back to ho
 CUBE_MAX_SHIFT = 80.0  # mm: a close look that moves the estimate more than this is a different blob; ignore it
 CUBE_STAGES = (90.0, 70.0, 52.0)   # steered-point heights to close at, in order; the fingertips hang some
                                    # unknown distance below the steered point, so go down in steps and stop at the first hold
-HELD_POS = 60.0        # finger position above this after closing = something is between the fingers
+HELD_POS = 60.0        # (old rule, kept for the bottle path)
+HELD_MIN, HELD_MAX = 120.0, 700.0   # settled finger position for a 48 mm cube: well off both ends of the 0..850 range
 SOFT_SPEED = 800.0     # gripper closing speed while grasping (driver default 2000); gentler on the bottle
+
+
+async def settled_fingers(rig):
+    """Finger position once the gripper has stopped moving (reading it right after the close command
+    returned the OPEN position and counted as a hold 12 times on 29 Oct)."""
+    last = None
+    for _ in range(20):
+        await asyncio.sleep(0.15)
+        try:
+            p = (await asyncio.wait_for(rig.gripper.do_command({"get": True}), 5)).get("pos", -1)
+        except Exception:
+            p = -1
+        if last is not None and abs(p - last) < 3:
+            return p
+        last = p
+    return last if last is not None else -1
+
+
+def save_view(rig, label):
+    """Keep the picture for the record (data/practice/<time>-<label>.jpg)."""
+    import os
+    d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "practice")
+    os.makedirs(d, exist_ok=True)
+    rig.pending_view = os.path.join(d, f"{time.strftime('%H%M%S')}-{label}.jpg")
 
 
 async def plan_to(rig, x, y, z, label, o=(0.0, 0.0, -1.0), theta=0.0):
@@ -142,7 +168,7 @@ async def pick_once(rig, attempt):
 
 async def pick_cube_once(rig, colour, attempt):
     """Top-down grasp of a coloured cube: above it, then down in stages, closing at each until the fingers hold."""
-    from cube import CUBE_MM, find_cubes
+    from cube import CUBE_MM, find_cubes, find_cube_close
     if attempt == 1:
         await say("to greet first; gripper open")
         if rig.live:
@@ -180,6 +206,12 @@ async def pick_cube_once(rig, colour, attempt):
                 return False
             await asyncio.sleep(0.4)
             r = await step("close look", find_cube_close(rig.machine, rig.cam, rig.intr, colour))
+            try:
+                jpeg, _ = await grab(rig.cam, want_depth=False)
+                import os; d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "practice"); os.makedirs(d, exist_ok=True)
+                open(os.path.join(d, f"{time.strftime('%H%M%S')}-{colour}-look{hover:.0f}.jpg"), "wb").write(jpeg)
+            except Exception:
+                pass
             if r is None or r[0] is None:
                 await say(f"   close look at z={hover:.0f}: cube not seen from here; keeping the last estimate")
                 continue
@@ -196,15 +228,12 @@ async def pick_cube_once(rig, colour, attempt):
             if not await plan_to(rig, cx, cy, z, f"down to z={z:.0f}"):
                 break
             await step("gripper close", rig.gripper.grab())
-            try:
-                posn = (await step("finger position", rig.gripper.do_command({"get": True}))).get("pos", -1)
-            except Exception:
-                posn = -1
-            await say(f"   closed at z={z:.0f}: finger position {posn:.0f}")
-            if posn > HELD_POS:
+            posn = await settled_fingers(rig)
+            await say(f"   closed at z={z:.0f}: fingers settled at {posn:.0f} (open 850, shut 0; a cube reads {HELD_MIN:.0f} to {HELD_MAX:.0f})")
+            if HELD_MIN < posn < HELD_MAX:
                 held = True
                 break
-            await rig.gripper.open(); await asyncio.sleep(0.5)
+            await step("gripper open", rig.gripper.open()); await asyncio.sleep(0.8)
         if held:
             break
         await say(f"   pass {pass_n}: fingers closed on nothing; back up to look again")
@@ -219,6 +248,21 @@ async def pick_cube_once(rig, colour, attempt):
         return False
     await plan_to(rig, cx, cy, CUBE_ABOVE, "lift")
     rig.last_grasp = (cx, cy)
+    # the truthful check: after the lift, is the cube gone from its spot?
+    await asyncio.sleep(0.4)
+    r = await step("look at the spot", find_cube_close(rig.machine, rig.cam, rig.intr, colour))
+    posn = await settled_fingers(rig)
+    if r and r[0] and math.hypot(r[0][0] - cx, r[0][1] - cy) < 60:
+        await say(f"   after the lift the {colour} cube is STILL at its spot (fingers {posn:.0f}): not picked")
+        await step("gripper open", rig.gripper.open())
+        return False
+    await say(f"   after the lift the spot is clear (fingers {posn:.0f}): picked")
+    try:
+        jpeg, _ = await grab(rig.cam, want_depth=False)
+        import os; d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "practice"); os.makedirs(d, exist_ok=True)
+        open(os.path.join(d, f"{time.strftime('%H%M%S')}-{colour}-lifted.jpg"), "wb").write(jpeg)
+    except Exception:
+        pass
     await say(f"{colour} cube confirmed in the gripper; to greet, to find your hand")
     await step("greet go-to", rig.greet.set_position(2)); await asyncio.sleep(5)
     return True
