@@ -106,8 +106,13 @@ async def handover(rig):
     await say(f"following your left hand (recording {os.path.basename(rec)}); hold it still and the cube comes to it")
     sm = None; still_since = None; frame_n = 0; body_cache = (None, None, None)
     at_target = None; target = None
-    t_start = time.time()
+    t_start = time.time(); last_beat = 0.0; seen_n = 0
     while time.time() - t_start < FOLLOW_MAX_S:
+        if time.time() - last_beat > 3:
+            last_beat = time.time()
+            await say(f"   ...{frame_n} frames, hand seen in {seen_n}; "
+                      + (f"still for {time.time() - still_since:.1f} s" if still_since else "not still")
+                      + ("; at target" if at_target else ""))
         jpeg, _ = await grab(cam, want_depth=False)
         open(os.path.join(rec, f"{time.time():.3f}.jpg"), "wb").write(jpeg)
         frame_n += 1
@@ -121,6 +126,7 @@ async def handover(rig):
         if raw is None:
             still_since = None
             continue
+        seen_n += 1
         prev = sm
         sm = raw if sm is None else (sm[0] + SMOOTH * (raw[0] - sm[0]), sm[1] + SMOOTH * (raw[1] - sm[1]))
         if prev is not None and math.dist(sm, prev) < STEADY_PX:
