@@ -169,7 +169,8 @@ async def follow_step(rig, state):
     ex, ey = sm[0] - 0.5, sm[1] - 0.5
     if abs(ex) < DEADBAND and abs(ey) < DEADBAND:
         return
-    dx = FOLLOW_SIGN * max(-STEP_CAP, min(STEP_CAP, -GAIN * ex)); dy = FOLLOW_SIGN * max(-STEP_CAP, min(STEP_CAP, GAIN * ey))
+    cap, gain = TAPE_STEP_CAP, GAIN * TAPE_GAIN_SCALE      # softer than the hand follower: 13 corrections a second overshot and swung (15:26 recording)
+    dx = FOLLOW_SIGN * max(-cap, min(cap, -gain * ex)); dy = FOLLOW_SIGN * max(-cap, min(cap, gain * ey))
     state["adx"] = state.get("adx", 0.0) + 0.7 * (dx - state.get("adx", 0.0))
     state["ady"] = state.get("ady", 0.0) + 0.7 * (dy - state.get("ady", 0.0))
     if rig.live:
@@ -210,6 +211,8 @@ async def push_forward(rig):
     except Exception as e:
         await say(f"forward move refused ({str(e)[:60]}); using the saved pose")
         return False
+TAPE_STEP_CAP = 3.0       # degrees per correction while following Skully (the hand follower allows 6)
+TAPE_GAIN_SCALE = 0.6     # share of the hand follower's gain
 FOLLOW_SIGN = +1.0        # the original direction: 95 corrections closer vs 31 further in the 15:26 recording; the -1 flip of 15:27 was wrong
 EXTEND_SHORT_MM = 80.0    # stop this far short of the tape (the cube's centre sits ~60 mm ahead of the steered point)
 EXTEND_MIN, EXTEND_MAX = 60.0, 350.0
