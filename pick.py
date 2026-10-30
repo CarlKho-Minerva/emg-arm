@@ -285,17 +285,23 @@ async def pick_cube_once(rig, colour, attempt):
     # the truthful check: shift sideways and look. A cube on the table stays at the spot; a cube in the
     # hand moves with the gripper (straight above the spot both land on the same pixel, so that view lies)
     posn = await settled_fingers(rig)
-    await plan_to(rig, cx + SHIFT_MM, cy, CUBE_ABOVE, f"shift {SHIFT_MM:.0f} mm to check", theta=THETA_SIGN * yaw)
+    # shift toward the base when the cube is far out: at 768 mm a shift away was beyond reach, the planner refused,
+    # the arm never moved, and the cube in the hand was read as "still on the table" and dropped (30 Oct 15:20)
+    sx = cx - SHIFT_MM if math.hypot(cx + SHIFT_MM, cy) > CUBE_REACH - 20 else cx + SHIFT_MM
+    shifted = await plan_to(rig, sx, cy, CUBE_ABOVE, f"shift {abs(sx - cx):.0f} mm {'toward' if sx < cx else 'away from'} the base to check", theta=THETA_SIGN * yaw)
     await asyncio.sleep(0.4)
-    r = await step("look after the shift", find_cube_close(rig.machine, rig.cam, rig.intr, colour))
     on_table = in_hand = False
-    if r and r[0]:
-        d_spot = math.hypot(r[0][0] - cx, r[0][1] - cy)
-        d_hand = math.hypot(r[0][0] - (cx + SHIFT_MM), r[0][1] - cy)
-        on_table, in_hand = d_spot < 60, d_hand < 60
-        await say(f"   after the shift: {colour} seen {d_spot:.0f} mm from the spot, {d_hand:.0f} mm from the gripper, fingers {posn:.0f}")
+    if not shifted:
+        await say(f"   the check shift was refused; judging by the fingers alone ({posn:.0f})")
     else:
-        await say(f"   after the shift: no {colour} seen (fingers {posn:.0f})")
+        r = await step("look after the shift", find_cube_close(rig.machine, rig.cam, rig.intr, colour))
+        if r and r[0]:
+            d_spot = math.hypot(r[0][0] - cx, r[0][1] - cy)
+            d_hand = math.hypot(r[0][0] - sx, r[0][1] - cy)
+            on_table, in_hand = d_spot < 60, d_hand < 60
+            await say(f"   after the shift: {colour} seen {d_spot:.0f} mm from the spot, {d_hand:.0f} mm from the gripper, fingers {posn:.0f}")
+        else:
+            await say(f"   after the shift: no {colour} seen (fingers {posn:.0f})")
     if on_table or not (HELD_MIN < posn < HELD_MAX):
         await say(f"   not picked: {'the cube is still on the table' if on_table else 'the fingers are not holding'}")
         await plan_to(rig, cx, cy, CUBE_ABOVE, "back over the spot")
