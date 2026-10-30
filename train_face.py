@@ -2,8 +2,8 @@
 
 Input: data/face_frames.jsonl, one line per calibration frame: label (rest, left, right, both, mouth)
 and the 52 face numbers the face model gives (how much each part of the face has moved). Model: a
-nearest-centroid classifier on the standardised numbers, with the rest class given a margin. It is
-tiny on purpose: it must be retrained at the table in one calibration pass and never surprise anyone.
+multinomial logistic regression on the standardised numbers, plain numpy. It is tiny on purpose: it
+retrains at the table from one calibration pass in under a second and never surprises anyone.
 
     .venv/bin/python train_face.py          # writes data/face_model.json, prints held-out accuracy
 """
@@ -25,27 +25,41 @@ def load():
     return names, X, y
 
 
-def fit(names, X, y):
-    d = len(names)
-    mean = [sum(x[i] for x in X) / len(X) for i in range(d)]
-    std = [max((sum((x[i] - mean[i]) ** 2 for x in X) / len(X)) ** 0.5, 1e-3) for i in range(d)]
-    Z = [[(x[i] - mean[i]) / std[i] for i in range(d)] for x in X]
-    cent = {}
-    for lab in LABELS:
-        rows = [z for z, l in zip(Z, y) if l == lab]
-        if rows:
-            cent[lab] = [sum(r[i] for r in rows) / len(rows) for i in range(d)]
-    return {"names": names, "mean": mean, "std": std, "centroids": cent}
+def fit(names, X, y, iters=400, lr=0.5, l2=1e-3):
+    """Multinomial logistic regression on standardised features, plain numpy. Nearest-centroid failed the
+    synthetic check (47 noise dimensions drowned the 5 that matter: 27% accuracy); this weighs each
+    feature by how much it separates the classes."""
+    import numpy as np
+    X = np.array(X, dtype=float); labs = [l for l in LABELS if l in set(y)]
+    Y = np.array([labs.index(l) for l in y])
+    mean, std = X.mean(0), np.maximum(X.std(0), 1e-3)
+    Z = (X - mean) / std
+    n, d = Z.shape; k = len(labs)
+    W = np.zeros((d, k)); b = np.zeros(k)
+    onehot = np.eye(k)[Y]
+    # class weights so a short class (few frames) is not ignored
+    cw = (n / (k * np.bincount(Y, minlength=k)))[Y][:, None]
+    for _ in range(iters):
+        logits = Z @ W + b
+        logits -= logits.max(1, keepdims=True)
+        P = np.exp(logits); P /= P.sum(1, keepdims=True)
+        G = (P - onehot) * cw / n
+        W -= lr * (Z.T @ G + l2 * W); b -= lr * G.sum(0)
+    return {"names": names, "mean": mean.tolist(), "std": std.tolist(), "labels": labs, "W": W.tolist(), "b": b.tolist()}
 
 
-def predict(model, shapes, rest_margin=0.15):
+def predict(model, shapes, rest_margin=0.0):
+    """(label, probabilities). rest_margin: a gesture must beat rest by this much probability."""
+    import math
     z = [(shapes.get(n, 0.0) - m) / s for n, m, s in zip(model["names"], model["mean"], model["std"])]
-    dists = {lab: sum((a - b) ** 2 for a, b in zip(z, c)) ** 0.5 for lab, c in model["centroids"].items()}
-    best = min(dists, key=dists.get)
-    # rest wins ties generously: a gesture must be clearly nearer its centroid than to rest
-    if best != "rest" and "rest" in dists and dists[best] > dists["rest"] * (1 - rest_margin):
-        return "rest", dists
-    return best, dists
+    labs = model["labels"]; W = model["W"]; b = model["b"]
+    logits = [sum(z[i] * W[i][j] for i in range(len(z))) + b[j] for j in range(len(labs))]
+    mx = max(logits); ex = [math.exp(v - mx) for v in logits]; tot = sum(ex)
+    probs = {lab: e / tot for lab, e in zip(labs, ex)}
+    best = max(probs, key=probs.get)
+    if best != "rest" and "rest" in probs and probs[best] - probs["rest"] < rest_margin:
+        return "rest", probs
+    return best, probs
 
 
 def main():
