@@ -153,11 +153,11 @@ INSTRUCTIONS = (
     ("SERVED WITH A SMILE", None),
     ("", None),
     ("LEFT cheek up", "fetch the cube"),
-    ("RIGHT cheek up", "feed Alex"),
+    ("RIGHT cheek up", "feed Skully"),
     ("SMILE once", "let go"),
     ("SMILE twice", "home (stop)"),
     ("", None),
-    ("Alex eats only if he", None),
+    ("Skully eats only if he", None),
     ("holds still and is in reach", None),
 )
 

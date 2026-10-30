@@ -1,6 +1,6 @@
 """Episodic memory for Served With a Smile: one document per thing the arm was asked to do.
 
-Every command the face gives (fetch, feed Alex, let go, home) becomes an episode: what was heard, what
+Every command the face gives (fetch, feed Skully, let go, home) becomes an episode: what was heard, what
 the robot did, what it saw, whether it worked, how long it took. Episodes are appended to
 data/serve_episodes.jsonl at once (the file is the truth) and pushed to MongoDB when a cluster can be
 reached; what could not be pushed is marked synced=false and retried on the next push.
@@ -47,11 +47,11 @@ def load():
 
 
 class Episode(dict):
-    """A dict with start()/end(). Use: ep = Episode.start("feed_alex", "R"); ... ep.end(True, "fed")."""
+    """A dict with start()/end(). Use: ep = Episode.start("feed_skully", "R"); ... ep.end(True, "fed")."""
     @classmethod
-    def start(cls, kind, trigger, **extra):
+    def start(cls, kind, trigger, source="live", **extra):
         ep = cls(episode_id=f"{kind}_{time.strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:4]}", kind=kind, trigger=trigger,
-                 t_start=time.time(), source="live", synced=False, **extra)
+                 t_start=time.time(), source=source, synced=False, **extra)
         return ep
 
     def end(self, ok, reason, **extra):
@@ -128,7 +128,7 @@ def stats():
         d = by.setdefault(k, {"attempts": 0, "ok": 0, "refused": 0, "duration_s": []})
         d["attempts"] += 1
         d["ok"] += 1 if r.get("ok") else 0
-        d["refused"] += 1 if (not r.get("ok") and str(r.get("reason", "")).startswith(("alex moving", "alex out", "alex not", "nothing in"))) else 0
+        d["refused"] += 1 if (not r.get("ok") and str(r.get("reason", "")).startswith(("skully moving", "skully out", "skully not", "nothing in"))) else 0
         if r.get("duration_s") is not None:
             d["duration_s"].append(r["duration_s"])
     for d in by.values():

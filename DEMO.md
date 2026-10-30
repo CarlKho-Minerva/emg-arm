@@ -204,13 +204,13 @@ in the pitch: "the same controls from muscle signals, for a face that barely mov
 
 ## Friday 30 Oct, 14:05: the final controls and the run of show
 
-Decided at the table: no modes, no crane. Alex is the pewter skull with blue painter's tape on his nose.
+Decided at the table: no modes, no crane. Skully is the pewter skull with blue painter's tape on his nose.
 He stands on the table between two phones, facing the robot. Blue cube off the table (same hue as the tape).
 
 | face | the robot |
 |---|---|
 | left cheek up (L) | fetch: home, find the green cube, pick it, prove the grip (shift test), back to greet |
-| right cheek up (R) | feed Alex: home, look for the tape twice a second apart; if he held still (under 20 mm) and is 530 to 800 mm from the base, come in level to his mouth, let go, back out, greet. Else refuse, say why, keep the cube |
+| right cheek up (R) | feed Skully: home, look for the tape twice a second apart; if he held still (under 20 mm) and is 530 to 800 mm from the base, come in level to his mouth, let go, back out, greet. Else refuse, say why, keep the cube |
 | full smile (B) | let go where it is |
 | two smiles (BB) | home, gripper open: the stop |
 
@@ -218,12 +218,12 @@ Open mouth (M) does nothing unless `serve.py --live --face-feed`: feeding a pers
 live. Three smiles do nothing.
 
 The three guards, said out loud at the demo: he has to be seen, he has to hold still, he has to be in reach.
-One deliberate refusal in the demo: smile right while moving Alex, the robot says "REFUSED: Alex moved", goes
+One deliberate refusal in the demo: smile right while moving Skully, the robot says "REFUSED: Skully moved", goes
 back to greet with the cube. Then put him down, smile right again, he eats.
 
 ### Measure before the first live feed (two numbers, a ruler, one minute)
 
-- `TAPE_Z` in `skull.py`: height of the tape's centre above the table with Alex standing. Default 150. Used
+- `TAPE_Z` in `skull.py`: height of the tape's centre above the table with Skully standing. Default 150. Used
   only when the depth map has no reading on the tape; the live finder uses depth first.
 - `MOUTH_BELOW`: tape centre to the centre of the open mouth. Default 70.
 - Then `.venv/bin/python skull.py --live --probe` with the cube in the gripper: it goes to the pre-feed pose
@@ -238,7 +238,7 @@ back to greet with the cube. Then put him down, smile right again, he eats.
 
 ### Three minutes, spoken
 
-0:00 "Meet Alex. He's dead hungry." (pause) "Jokes aside: for someone with a cervical spinal cord injury, the
+0:00 "Meet Skully. He's dead hungry." (pause) "Jokes aside: for someone with a cervical spinal cord injury, the
 spinal cord is damaged in the neck, so the arms and hands can be mostly paralysed while the face still moves.
 Bringing food to your own mouth needs another person. This asks: what if a small facial movement were enough?"
 
@@ -246,9 +246,9 @@ Bringing food to your own mouth needs another person. This asks: what if a small
 classifier I trained on my own face in 20 seconds. Four gestures, no hands, no voice." (left cheek) "That is
 fetch: find the cube, pick it, prove it has it by moving sideways and looking."
 
-1:00 "Now Alex is hungry. But the robot does not feed him because I smiled. It looks for the tape on his nose
-twice, a second apart. If he moved, it refuses." (move Alex, right cheek) "Refused; he was moving. He keeps
-the cube." (put Alex down) (right cheek) "Still, in reach: it comes in level and lets go. Bon appetit, Alex."
+1:00 "Now Skully is hungry. But the robot does not feed him because I smiled. It looks for the tape on his nose
+twice, a second apart. If he moved, it refuses." (move Skully, right cheek) "Refused; he was moving. He keeps
+the cube." (put Skully down) (right cheek) "Still, in reach: it comes in level and lets go. Bon appetit, Skully."
 
 2:00 "Every command is an episode: the gesture, what it saw, the three checks, the outcome, how long. On disk
 at once; MongoDB Atlas when the network lets it through" (point at the screen: synced or queued, honestly).
@@ -263,8 +263,8 @@ written here. Thank you."
 
 - Project name: Served With a Smile
 - Team: Carl Kho (solo), Somach Systems
-- One line: a face-controlled robot arm that fetches food and feeds Alex the skeleton, and knows when not to.
-- What it does: half-smile left fetches a cube (vision pick with a self-check); half-smile right feeds Alex
+- One line: a face-controlled robot arm that fetches food and feeds Skully the skeleton, and knows when not to.
+- What it does: half-smile left fetches a cube (vision pick with a self-check); half-smile right feeds Skully
   only after two looks a second apart agree he is still and in reach; a full smile releases; two smiles stop.
   Every command is logged as an episode (gesture, observation, checks, outcome, duration) to MongoDB.
 - Built with: UFactory xArm 6 via Viam (arm, gripper, RealSense camera, motion planner with walls), Viam

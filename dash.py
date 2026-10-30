@@ -37,11 +37,11 @@ FACE_WORDS = {"L": "smile left", "R": "smile right", "B": "full smile", "M": "mo
 CONTROLS = [
     ("Face controls (one state, no modes)", None, None),
     ("L", "left cheek up", "fetch: home, find the green cube, pick, prove the grip, greet"),
-    ("R", "right cheek up", "feed Alex: look twice; if he held still and is in reach, cube into the mouth, let go, back"),
+    ("R", "right cheek up", "feed Skully: look twice; if he held still and is in reach, cube into the mouth, let go, back"),
     ("B", "full smile", "let go"),
     ("BB", "smile twice", "home, gripper open (stop)"),
     ("Why the robot can refuse", None, None),
-    ("-", "Alex moved", "more than 20 mm between two looks a second apart: refused, cube kept"),
+    ("-", "Skully moved", "more than 20 mm between two looks a second apart: refused, cube kept"),
     ("-", "out of reach", "nearer than 530 mm or further than 800 mm from the base: refused"),
     ("-", "empty hand", "feed asked with nothing in the gripper: refused"),
 ]
@@ -182,7 +182,7 @@ def state():
         "calib": {k: calib.get(k) for k in ("up_left", "up_right", "down", "jaw_open", "at")},
         "robot": {"source": robot_picture()[2], "age": robot_picture()[3], "url": ROBOT_URL, "error": robot["error"]},
         "episodes": episode_stats(),
-        "alex": read_json(os.path.join(DATA, "alex.json")),
+        "skully": read_json(os.path.join(DATA, "skully.json")),
     }
 
 
@@ -247,7 +247,7 @@ h2{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0}
 </style></head><body>
 <header>
   <h1>Served With a Smile</h1>
-  <div class="line">Meet Alex. He's dead hungry. <b>Left cheek:</b> fetch. <b>Right cheek:</b> feed Alex. <b>Smile:</b> let go. <b>Two smiles:</b> home.</div>
+  <div class="line">Meet Skully. He's dead hungry. <b>Left cheek:</b> fetch. <b>Right cheek:</b> feed Skully. <b>Smile:</b> let go. <b>Two smiles:</b> home.</div>
   <div class="right" id="clock"></div>
 </header>
 <main>
@@ -309,9 +309,9 @@ async function tick(){
   $('log_tag').textContent=rows.length?(s.counts.lines>rows.length?`last ${rows.length} of ${s.counts.lines}`:`${rows.length} lines`):'';
   const ep=s.episodes||{}, bk=ep.by_kind||{};
   const k=n=>bk[n]||{attempts:0,ok:0,refused:0};
-  $('count').innerHTML=`episodes <b>${ep.total||0}</b> (${ep.live||0} today, ${ep.backfill||0} backfilled) &middot; fetch <b>${k('fetch').ok}/${k('fetch').attempts}</b> &middot; feed Alex <b>${k('feed_alex').ok}/${k('feed_alex').attempts}</b>, refused <b>${k('feed_alex').refused}</b>`;
-  const mg=ep.mongo||{}; const ax=s.alex||{};
-  $('mongo').innerHTML=`MongoDB ${mg.db||''}.${mg.collection||''}: `+(mg.ok?`<span style="color:var(--ok)">connected, ${mg.synced} synced</span>`:`<span style="color:var(--warn)">unreachable from this network, ${mg.queued} queued on disk</span>`)+(ax.t?` &middot; Alex: ${ax.seen?(ax.stable?'<span style="color:var(--ok)">still</span>':'<span style="color:var(--warn)">moving '+(ax.moved_mm||0).toFixed(0)+' mm</span>'):'not seen'} (${fmtAge(Date.now()/1000-ax.t)} ago)`:'');
+  $('count').innerHTML=`episodes <b>${ep.total||0}</b> (${ep.live||0} today, ${ep.backfill||0} backfilled) &middot; fetch <b>${k('fetch').ok}/${k('fetch').attempts}</b> &middot; feed Skully <b>${k('feed_skully').ok}/${k('feed_skully').attempts}</b>, refused <b>${k('feed_skully').refused}</b>`;
+  const mg=ep.mongo||{}; const ax=s.skully||{};
+  $('mongo').innerHTML=`MongoDB ${mg.db||''}.${mg.collection||''}: `+(mg.ok?`<span style="color:var(--ok)">connected, ${mg.synced} synced</span>`:`<span style="color:var(--warn)">unreachable from this network, ${mg.queued} queued on disk</span>`)+(ax.t?` &middot; Skully: ${ax.seen?(ax.stable?'<span style="color:var(--ok)">still</span>':'<span style="color:var(--warn)">moving '+(ax.moved_mm||0).toFixed(0)+' mm</span>'):'not seen'} (${fmtAge(Date.now()/1000-ax.t)} ago)`:'');
   const rb=s.robot||{};
   $('robot_tag').textContent=rb.source==='box'?'live from the box':rb.source==='file'?`last picture on disk, ${fmtAge(rb.age)} old`:'robot offline';
   $('robot_tag').className='tag '+(rb.source==='box'?'ok':'warn');

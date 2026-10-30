@@ -5,7 +5,7 @@
 
 The controls (final, Fri 30 Oct 14:00; the crane/nudge mode is gone):
   L     half-smile LEFT:  fetch the food: home, find the green cube, pick it, prove the grip, back to greet
-  R     half-smile RIGHT: feed Alex: home, find the blue tape on his nose twice a second apart, and only if he
+  R     half-smile RIGHT: feed Skully: home, find the blue tape on his nose twice a second apart, and only if he
         held still and is in reach, bring the cube level into his open mouth, let go, back out, greet.
         If he moved, the robot says so, refuses, and comes back to greet still holding the cube.
   B     full smile: let go (the gripper opens where it is)
@@ -25,7 +25,7 @@ from camgrab import grab
 from episodes import Episode
 from handme import Rig, feed, say
 from pick import HELD_MAX, HELD_MIN, pick, settled_fingers
-from skull import feed_alex
+from skull import feed_skully
 from viamarm import connect
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -81,7 +81,7 @@ async def main(live, cube, face_feed):
         rig.last_grasp = None
         since = time.time()
         last_view = 0.0
-        await say(f"Served With a Smile. LEFT cheek: fetch the {cube} cube. RIGHT cheek: feed Alex. Smile: let go. Two smiles: home.")
+        await say(f"Served With a Smile. LEFT cheek: fetch the {cube} cube. RIGHT cheek: feed Skully. Smile: let go. Two smiles: home.")
         while True:
             groups = new_groups(since)
             if not groups:
@@ -99,14 +99,14 @@ async def main(live, cube, face_feed):
                     ep.end(ok, "picked and proved" if ok else "missed", grasp=rig.last_grasp)
                     await say("fetched; at greet" if ok else "could not fetch")
                 elif g == "R":
-                    ep = Episode.start("feed_alex", g)
+                    ep = Episode.start("feed_skully", g)
                     if not await holding(rig):
-                        log(g, "feed Alex refused: nothing in the gripper (smile left first)")
+                        log(g, "feed Skully refused: nothing in the gripper (smile left first)")
                         ep.end(False, "nothing in the gripper")
                         await say("nothing in the gripper to feed him with; smile left first")
                         continue
-                    ok, why = await feed_alex(rig, say, episode=ep)
-                    log(g, f"feed Alex: {why}")
+                    ok, why = await feed_skully(rig, say, episode=ep)
+                    log(g, f"feed Skully: {why}")
                     ep.end(ok, why)
                 elif g == "M":
                     ep = Episode.start("feed_face", g)

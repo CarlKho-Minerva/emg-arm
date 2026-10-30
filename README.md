@@ -11,8 +11,8 @@ Carl Kho (solo team). Somach Systems, Inc.
 Served With a Smile
 
 **Project Abstract**
-A face-controlled robot arm that fetches food and feeds Alex, a skeleton skull, using four facial gestures read
-from a laptop camera: left cheek fetches a cube (vision pick with a self-check), right cheek feeds Alex, a smile
+A face-controlled robot arm that fetches food and feeds Skully, a skeleton skull, using four facial gestures read
+from a laptop camera: left cheek fetches a cube (vision pick with a self-check), right cheek feeds Skully, a smile
 releases, two smiles stop. The robot feeds only after two looks a second apart agree the skull is still and in
 reach, so it knows when not to act. Every command is stored as an episode (gesture, what the camera saw, the
 safety checks, outcome, duration) in MongoDB, with a local mirror so nothing is lost when the network is down.
@@ -38,11 +38,11 @@ event and is the next input, not driving the arm today.
 | face | the robot |
 |---|---|
 | left cheek up (L) | fetch: home, find the green cube, pick, prove the grip, back to greet |
-| right cheek up (R) | feed Alex: look twice; if he held still (under 20 mm) and is 530 to 800 mm from the base, cube into his mouth, let go, back out, greet; else refuse and keep the cube |
+| right cheek up (R) | feed Skully: look twice; if he held still (under 20 mm) and is 530 to 800 mm from the base, cube into his mouth, let go, back out, greet; else refuse and keep the cube |
 | full smile (B) | let go |
 | two smiles (BB) | home, gripper open (stop) |
 
-Alex faces the robot, between two phones, blue cube off the table (same hue as the tape). Measure two numbers in
+Skully faces the robot, between two phones, blue cube off the table (same hue as the tape). Measure two numbers in
 `skull.py` with a ruler before the first live feed: `TAPE_Z` (table to the tape's centre, default 125) and
 `MOUTH_BELOW` (tape centre to the open mouth's centre, default 60). Then `skull.py --live --probe` (pre-feed pose
 only), then `skull.py --live` once, then `serve.py --live`. Run of show, 3-minute script: DEMO.md.
