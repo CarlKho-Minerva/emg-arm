@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 data/
 data/mongo/
+data/mongo-bin/
