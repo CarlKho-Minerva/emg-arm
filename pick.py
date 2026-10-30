@@ -33,6 +33,12 @@ async def plan_to(rig, x, y, z, label):
     except Exception as e:
         await say(f"planner, {label}: {str(e)[:100]}"); return False
     await say(f"planner, {label}: ok={ok} in {time.time() - t0:.1f} s")
+    try:
+        p = (await rig.motion.get_pose("gripper", "world")).pose
+        await say(f"   gripper now at x={p.x:.0f} y={p.y:.0f} z={p.z:.0f} (asked x={x:.0f} y={y:.0f} z={z:.0f}; "
+                  f"off by {p.x - x:+.0f},{p.y - y:+.0f},{p.z - z:+.0f} mm)")
+    except Exception as e:
+        await say(f"   could not read the gripper pose: {str(e)[:60]}")
     return ok
 
 
