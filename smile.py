@@ -149,6 +149,69 @@ def calibrate(cam=0, seconds=3.0):
     print(json.dumps({k: round(v, 3) for k, v in calib.items() if isinstance(v, float)}))
 
 
+INSTRUCTIONS = (
+    ("SERVED WITH A SMILE", None),
+    ("", None),
+    ("LEFT cheek up", "fetch the cube"),
+    ("RIGHT cheek up", "hand it over"),
+    ("OPEN your mouth", "feed me"),
+    ("SMILE once", "let go"),
+    ("SMILE twice", "nudge mode"),
+    ("SMILE 3 times", "home"),
+    ("", None),
+    ("in nudge mode:", None),
+    ("LEFT / RIGHT", "move a step"),
+    ("SMILE twice", "next axis"),
+    ("SMILE once", "grab / release"),
+)
+
+
+def draw_panel(frame, sc, up, group, thresholds):
+    """The instructions down the right side, the live scores as bars, the group being heard.
+    (Dropped by mistake in the calibration commit of 19:50; restored 23:10 with the mouth line added.)"""
+    h, w = frame.shape[:2]
+    pw = 360
+    panel = frame.copy()
+    cv2.rectangle(panel, (w - pw, 0), (w, h), (18, 18, 18), -1)
+    frame = cv2.addWeighted(panel, 0.82, frame, 0.18, 0)
+    y = 44
+    for left, right in INSTRUCTIONS:
+        if left == "SERVED WITH A SMILE":
+            cv2.putText(frame, left, (w - pw + 20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2)
+        elif left:
+            cv2.putText(frame, left, (w - pw + 20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (0, 200, 90) if right else (170, 170, 170), 1)
+            if right:
+                cv2.putText(frame, right, (w - pw + 190, y), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (235, 235, 235), 1)
+        y += 30
+    # live bars: how far each side is toward its trigger
+    y += 10
+    for label, val, thr in (("left", sc[0] if sc else 0.0, thresholds[0]), ("right", sc[1] if sc else 0.0, thresholds[1])):
+        cv2.putText(frame, f"{label} {val:.2f}", (w - pw + 20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
+        x0, x1 = w - pw + 120, w - 30
+        cv2.rectangle(frame, (x0, y - 14), (x1, y - 2), (60, 60, 60), -1)
+        fill = int((x1 - x0) * min(val / max(thr * 2, 0.01), 1.0))
+        cv2.rectangle(frame, (x0, y - 14), (x0 + fill, y - 2), (0, 200, 90) if val > thr else (120, 120, 120), -1)
+        tx = x0 + int((x1 - x0) * 0.5)
+        cv2.line(frame, (tx, y - 17), (tx, y + 1), (255, 255, 255), 1)
+        y += 28
+    heard = "".join(group) or ("holding " + up if up else "")
+    cv2.putText(frame, heard, (w - pw + 20, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 200, 90), 2)
+    if not sc:
+        cv2.putText(frame, "no face", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
+    return frame
+
+
+FACE_JPG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "face_live.jpg")
+
+
+def publish_face(frame):
+    """The frame the window shows, for the demo screen (dash.py). Atomic: a reader never sees half a file."""
+    tmp = FACE_JPG + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])[1].tobytes())
+    os.replace(tmp, FACE_JPG)
+
+
 def load_calib():
     import json
     if os.path.exists(CALIB):
@@ -159,7 +222,8 @@ def load_calib():
 
 def main(window=True, cam=0):
     up_l, up_r, down, jaw_open = load_calib()
-    mouth_up = False; mouth_at = 0.0
+    mouth_up = False; mouth_at = 0.0; jaw = 0.0
+    published_at = 0.0
     print(f"thresholds: left {up_l:.2f} right {up_r:.2f} release {down:.2f}" + ("" if os.path.exists(CALIB) else " (defaults; run --calibrate)"), flush=True)
     det = detector()
     cap = cv2.VideoCapture(cam)
@@ -214,9 +278,13 @@ def main(window=True, cam=0):
             import json
             with open(LOG.replace("face.log", "face_status.json"), "w") as f:
                 json.dump({"t": now, "left": sc[0] if sc else None, "right": sc[1] if sc else None,
-                           "holding": up, "group": "".join(group)}, f)
-        if window:
+                           "jaw": jaw if sc else None, "holding": up, "group": "".join(group)}, f)
+        publish = now - published_at >= 0.1                  # at most ten times a second, for the demo screen
+        if window or publish:
             frame = draw_panel(frame, sc, up, group, (up_l, up_r))
+            if publish:
+                publish_face(frame); published_at = now
+        if window:
             cv2.imshow("Served With a Smile", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
