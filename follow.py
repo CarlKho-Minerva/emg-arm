@@ -114,6 +114,9 @@ def watch_score(bgr, pts):
     return float((patch < 60).mean())
 
 
+LAST_SIZE = 0.0   # wrist-to-knuckle size of the hand hand_centre last chose, as a fraction of the picture width
+
+
 def hand_centre(det, jpeg, near=None, want=None, avoid=None, keep=None):
     """Palm centre (0..1, 0..1) of the hand to follow, or None.
 
@@ -147,18 +150,24 @@ def hand_centre(det, jpeg, near=None, want=None, avoid=None, keep=None):
         p_left = is_left(crop_for(bgr, pts)) if model_ready() else None
         if p_left is not None and p_left < ID_MIN:
             continue                                      # the net says this is not Carl's left hand
-        cands.append((c, watch_score(bgr, pts), p_left))
+        cands.append((c, watch_score(bgr, pts), p_left, size))
+    global LAST_SIZE
     if not cands:
+        LAST_SIZE = 0.0
         return None
+    def _pick(c):
+        global LAST_SIZE
+        LAST_SIZE = c[3]
+        return c[0]
     if len(cands) > 1 and cands[0][2] is not None:
         cands.sort(key=lambda c: -c[2])                  # several survivors: the net's favourite
-        return cands[0][0]
+        return _pick(cands[0])
     if near is None and want == "watch" and len(cands) > 1:
         cands.sort(key=lambda c: -c[1])                  # first lock: the darkest wrist
-        return cands[0][0]
+        return _pick(cands[0])
     if near is None:
-        return cands[0][0]
-    return min((c[0] for c in cands), key=lambda c: (c[0] - near[0]) ** 2 + (c[1] - near[1]) ** 2)
+        return _pick(cands[0])
+    return _pick(min(cands, key=lambda c: (c[0][0] - near[0]) ** 2 + (c[0][1] - near[1]) ** 2))
 
 
 async def main(live, flip_x, flip_y, kp=GAIN, kd=KD, jx=JOINT_X, jy=JOINT_Y, want=None, smooth=SMOOTH, asmooth=ASMOOTH, arm_side=None, lost_go=None, speed=ARM_SPEED, accel=ARM_ACCEL,

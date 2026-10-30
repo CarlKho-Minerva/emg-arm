@@ -39,8 +39,10 @@ REACH = 800.0         # mm, furthest the gripper may be from the base
 MIN_Z = 150.0         # mm above the table
 TAKE_S = 5.0          # seconds the gripper stays open for Carl to take it
 REPLAN_MM = 50.0      # re-plan when the hand has moved more than this
-STEADY_PX = 0.03      # smoothed hand moves less than this (fraction of the picture) between frames = still
-STEADY_S = 1.0        # still for this long before ranging and moving
+STEADY_PX = 0.06      # smoothed hand moves less than this (fraction of the picture) between frames = still
+STEADY_S = 0.6        # still for this long before ranging and moving
+TAKE_SIZE = 0.25      # wrist-to-knuckle over this fraction of the picture width = the hand is at the cube
+TAKE_S = 0.7          # ...for this long: let go (no stillness needed; this is how a person takes a thing)
 DWELL_S = 2.0         # hand still, arm at the standoff, for this long: let go
 SAFE_X = 850.0        # mm: direct moves never go further forward than this (the laptop wall is at 950)
 FOLLOW_MAX_S = 60.0   # give up following after this
@@ -118,6 +120,7 @@ async def handover(rig):
     ONE depth read, direct move to STANDOFF short of it. Phase 3: DWELL_S still at the target, open."""
     machine, cam, intr, det, pose, arm, gripper, greet, live = (rig.machine, rig.cam, rig.intr, rig.det, rig.pose,
                                                                 rig.arm, rig.gripper, rig.greet, rig.live)
+    import follow as F
     from follow import DEADBAND, GAIN, SMOOTH, STEP_CAP, depth_at, hand_centre
     from tracker import arm_target, wrists
     from viam.proto.component.arm import JointPositions
@@ -127,7 +130,7 @@ async def handover(rig):
     if live:
         await arm.do_command({"set_speed": 60.0, "set_acceleration": 200.0})
     sm = None; still_since = None; frame_n = 0; body_cache = (None, None, None)
-    at_target = None; last_seen = 0.0; seen_n = 0; last_beat = 0.0
+    at_target = None; last_seen = 0.0; seen_n = 0; last_beat = 0.0; big_since = None
     pending = None
     adx = ady = 0.0
     t_start = time.time()
@@ -137,7 +140,7 @@ async def handover(rig):
                 last_beat = time.time()
                 await say(f"   ...{frame_n} frames, hand seen in {seen_n}; "
                           + (f"still {time.time() - still_since:.1f} s" if still_since else "not still")
-                          + ("; at target" if at_target else ""))
+                          + ("; at target" if at_target else "") + f"; hand size {F.LAST_SIZE:.2f}")
             jpeg, _ = await grab(cam, want_depth=False)
             open(os.path.join(rec, f"{time.time():.3f}.jpg"), "wb").write(jpeg)
             frame_n += 1
@@ -153,6 +156,19 @@ async def handover(rig):
                     still_since = None; sm = None
                 continue
             seen_n += 1; last_seen = time.time()
+            # "take it": a hand this big in the picture is at the cube; TAKE_S of that and it opens
+            if F.LAST_SIZE >= TAKE_SIZE:
+                big_since = big_since or time.time()
+                if time.time() - big_since >= TAKE_S:
+                    await say(f"your hand is at the cube (size {F.LAST_SIZE:.2f} of the picture): letting go")
+                    if live:
+                        if pending and not pending.done():
+                            pending.cancel()
+                        await gripper.open()
+                    await asyncio.sleep(2)
+                    break
+            else:
+                big_since = None
             prev = sm
             sm = raw if sm is None else (sm[0] + SMOOTH * (raw[0] - sm[0]), sm[1] + SMOOTH * (raw[1] - sm[1]))
             ex, ey = sm[0] - 0.5, sm[1] - 0.5
