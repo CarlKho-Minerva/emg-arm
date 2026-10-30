@@ -18,12 +18,25 @@ load_dotenv(Path(__file__).resolve().parent / ".env")   # on the robot's own box
 ADDRESS = os.environ["VIAM_MACHINE_ADDRESS"]
 
 
+CONNECT_S = 40.0   # a dial through Viam's cloud took 2 to 5 s on 29 and 30 Oct; longer than this is a fault, not patience
+
+
 async def connect() -> RobotClient:
+    """Dial the robot, saying so, with a time limit. On 30 Oct 14:24 a silent dial hung long enough that Carl
+    pressed Ctrl-C believing the program was stuck; now it prints while it waits and fails loudly instead."""
+    import asyncio, sys, time
     opts = RobotClient.Options.with_api_key(
         api_key=os.environ["VIAM_API_KEY"],
         api_key_id=os.environ["VIAM_API_KEY_ID"],
     )
-    return await RobotClient.at_address(ADDRESS, opts)
+    print(f"connecting to the robot ({ADDRESS.split('.')[0]})...", flush=True)
+    t0 = time.time()
+    try:
+        machine = await asyncio.wait_for(RobotClient.at_address(ADDRESS, opts), CONNECT_S)
+    except asyncio.TimeoutError:
+        sys.exit(f"no connection to the robot after {CONNECT_S:.0f} s. Is the box on and on the same network? Try: .venv/bin/python probe.py")
+    print(f"connected in {time.time() - t0:.1f} s", flush=True)
+    return machine
 
 
 def arm_of(machine: RobotClient) -> Arm:
