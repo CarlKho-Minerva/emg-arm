@@ -68,13 +68,27 @@ def _alive(name):
 
 
 def _others_running(name):
-    """Pids of the same program started elsewhere (a Terminal window), so the screen never runs two face readers."""
+    """Pids of the same program started elsewhere (a Terminal window), so the screen never runs two face readers.
+    Reads ps and matches the script name at the end of a python command line; pgrep -f matched its own
+    pgrep and reported phantom pids (30 Oct 14:47)."""
+    script = PROGRAMS[name]["cmd"][1]
     try:
-        out = subprocess.run(["pgrep", "-f", f"python {PROGRAMS[name]['cmd'][1]}"], capture_output=True, text=True).stdout.split()
+        out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout.splitlines()
     except Exception:
         return []
-    mine = procs.get(name).pid if _alive(name) else None
-    return [int(x) for x in out if x.isdigit() and int(x) != mine and int(x) != os.getpid()]
+    mine = procs[name].pid if _alive(name) else None
+    pids = []
+    for ln in out:
+        ln = ln.strip()
+        if not ln:
+            continue
+        pid, _, cmd = ln.partition(" ")
+        if not pid.isdigit():
+            continue
+        parts = cmd.split()
+        if len(parts) >= 2 and parts[1] == script and ("python" in parts[0].lower()) and int(pid) not in (mine, os.getpid()):
+            pids.append(int(pid))
+    return pids
 
 
 def start(name):
