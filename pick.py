@@ -4,10 +4,11 @@
     .venv/bin/python pick.py --live     # the real thing; a hand on the red button
 
 Steps:
-  1. greet pose, gripper open. Find the nearest standing bottle within reach (bottle.py).
+  1. home pose (looking down at the table), gripper open. Find the nearest standing bottle within reach.
   2. planner: gripper to a point ABOVE_MM above the grasp point, fingers pointing down.
   3. planner: straight down to the grasp point. Close. Report whether something is held.
-  4. planner: back up ABOVE_MM. Then the handover from handme.py (watch for the hand, go, open, greet).
+  4. planner: back up ABOVE_MM; go to greet (facing Carl). Then the handover from handme.py
+     (watch for the left hand, go to 20 cm short of it, open, back to greet).
 Nothing learns; the detector finds, the planner moves.
 """
 import argparse
@@ -36,9 +37,9 @@ async def plan_to(rig, x, y, z, label):
 
 
 async def pick(rig):
-    await say("to greet, gripper open")
+    await say("to home (the view of the table), gripper open")
     if rig.live:
-        await rig.greet.set_position(2); await asyncio.sleep(4)
+        await rig.home.set_position(2); await asyncio.sleep(5)
         await rig.gripper.open()
     bottles, _ = await find_bottles(rig.machine, rig.cam, rig.intr)
     bottles = [b for b in bottles if b[0] >= 0.5 and math.hypot(b[2][0], b[2][1]) <= MAX_REACH]
@@ -57,6 +58,8 @@ async def pick(rig):
     await say(f"gripper closed, holding something: {held}")
     if not await plan_to(rig, g[0], g[1], g[2] + ABOVE_MM, "lift"):
         return False
+    await say("to greet, to find your hand")
+    await rig.greet.set_position(2); await asyncio.sleep(5)
     return held
 
 

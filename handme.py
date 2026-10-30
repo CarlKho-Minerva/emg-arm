@@ -58,6 +58,7 @@ class Rig:
         self.motion = MotionClient.from_robot(machine, "builtin")
         self.arm, self.gripper = arm_of(machine), gripper_of(machine)
         self.greet = Switch.from_robot(machine, "greet")
+        self.home = Switch.from_robot(machine, "home")      # the wide view of the table
         self.det, self.pose = detector(), pose_detector()
         self.intr = None
 
