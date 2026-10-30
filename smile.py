@@ -29,6 +29,7 @@ UP, DOWN = 0.18, 0.10      # a side counts as pulled above UP, released below DO
 SIDE_GAP = 0.10            # one side must beat the other by this to be one-sided; closer = both
 GROUP_S = 0.8              # events within this are one group; quiet this long ends the group
 MIN_HOLD_S = 0.08          # a corner must stay up this long (one blink of noise is not a smile)
+REFRACTORY_S = 0.3         # after a release, nothing new counts for this long (a relaxing cheek crosses the other side's line)
 
 
 def detector():
@@ -66,6 +67,7 @@ def main(window=True, cam=0):
     if not cap.isOpened():
         raise SystemExit("no camera; macOS may need to grant camera access to the terminal")
     up = None            # the event currently being held: "L", "R", "B" or None
+    released_at = 0.0
     up_since = 0.0
     counted = False
     group = []
@@ -85,8 +87,8 @@ def main(window=True, cam=0):
             l, r = sc
             # after the mirror, the picture's left is YOUR left, and the model's "Left" is the picture's left
             if up is None:
-                if l > UP or r > UP:
-                    if abs(l - r) < SIDE_GAP or (l > UP and r > UP):
+                if (l > UP or r > UP) and now - released_at > REFRACTORY_S:
+                    if l > UP and r > UP:               # both sides up together: B
                         up = "B"
                     else:
                         up = "L" if l > r else "R"
@@ -96,7 +98,7 @@ def main(window=True, cam=0):
                     group.append(up); last_event = now; counted = True
                     print(f"  {''.join(group)}", flush=True)
                 if l < DOWN and r < DOWN:
-                    up = None
+                    up = None; released_at = now
         if group and up is None and now - last_event > GROUP_S:
             g = "".join(group)
             write_group(g)
