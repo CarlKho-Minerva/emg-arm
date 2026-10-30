@@ -27,9 +27,9 @@ MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/face_landmarker/fa
 LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "face.log")
 UP, DOWN = 0.18, 0.10      # a side counts as pulled above UP, released below DOWN (Carl's cheek pull reads 0.20, rest 0.08)
 SIDE_GAP = 0.10            # one side must beat the other by this to be one-sided; closer = both
-GROUP_S = 0.8              # events within this are one group; quiet this long ends the group
+GROUP_S = 0.5              # smiles within this are one group (B, BB, BBB); quiet this long ends it (0.8 felt slow, Carl 30 Oct 15:00)
 MIN_HOLD_S = 0.08          # a corner must stay up this long (one blink of noise is not a smile)
-REFRACTORY_S = 0.3         # after a release, nothing new counts for this long (a relaxing cheek crosses the other side's line)
+REFRACTORY_S = 0.2         # after a release, nothing new counts for this long (a relaxing cheek crosses the other side's line)
 
 
 def detector():
@@ -112,7 +112,7 @@ def card(frame, title, lines, colour=(255, 255, 255)):
     return frame
 
 
-def calibrate(cam=0, seconds=10.0):
+def calibrate(cam=0, seconds=15.0):
     """Measure Carl's own rest and gestures in the window, coach-style: one instruction at a time, a
     countdown, a bar, then a card with the numbers. Thresholds halfway between rest and the gesture."""
     import json, statistics
@@ -360,8 +360,15 @@ def main(window=True, cam=0):
                     up_since = now; counted = False
             else:
                 if not counted and now - up_since >= MIN_HOLD_S:
-                    group.append(up); last_event = now; counted = True
-                    print(f"  {''.join(group)}", flush=True)
+                    counted = True
+                    if up in ("L", "R") and not group:
+                        # a cheek is a command by itself (LL and RR mean nothing), so it goes out the moment it is
+                        # confirmed instead of waiting GROUP_S for a group to close: about 0.1 s from onset to the arm
+                        write_group(up); print(f"{time.strftime('%H:%M:%S')} GROUP {up} (at once)", flush=True)
+                        last_event = now
+                    else:
+                        group.append(up); last_event = now
+                        print(f"  {''.join(group)}", flush=True)
                 released = (label in ("rest", "mouth", "other", None)) if model else (l < down and r < down)
                 if released and (not model or now - up_since > MIN_HOLD_S):
                     up = None; released_at = now
@@ -393,7 +400,7 @@ if __name__ == "__main__":
     ap.add_argument("--no-window", action="store_true")
     ap.add_argument("--cam", type=int, default=0)
     ap.add_argument("--calibrate", action="store_true", help="measure rest and each gesture, save the thresholds")
-    ap.add_argument("--seconds", type=float, default=10.0, help="seconds per calibration step (Carl, 30 Oct: 10 to 20)")
+    ap.add_argument("--seconds", type=float, default=15.0, help="seconds per calibration step (Carl, 30 Oct: more frames, more confidence)")
     a = ap.parse_args()
     if a.calibrate:
         calibrate(cam=a.cam, seconds=a.seconds)

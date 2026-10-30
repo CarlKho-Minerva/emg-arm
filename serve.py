@@ -36,7 +36,9 @@ FACE_LOG = os.path.join(HERE, "data", "face.log")
 SERVE_LOG = os.path.join(HERE, "data", "serve.log")
 LIVE_JPG = os.path.join(HERE, "data", "live.jpg")
 MODE_FILE = os.path.join(HERE, "data", "mode.json")     # the layer the arm is in, for the face window and the screen
-STEER_DEG = 8.0        # one cheek = this much waist turn (joint 0)
+STEER_DEG = 8.0        # (table path) one cheek event = this much waist turn; the live STEER layer pans while the cheek is held instead
+STEER_RATE = 12.0      # deg/s of waist turn while a cheek is held in STEER (streamed small steps, 10 a second)
+FACE_STATUS = os.path.join(HERE, "data", "face_status.json")
 # The arm faces Carl, so Carl's left is the arm's right. In follow.py a hand on the picture's right (Carl's left,
 # the wrist camera is not mirrored) makes joint 0 DEcrease. So Carl's left cheek = joint 0 minus STEER_DEG.
 STEER_SIGN = {"L": -1.0, "R": +1.0}
@@ -44,7 +46,7 @@ STEER_SIGN = {"L": -1.0, "R": +1.0}
 MODES = {
     "serve": [("L", "left cheek", "fetch the cube"), ("R", "right cheek", "feed Skully (hold him up, tape to the camera)"), ("B", "one smile", "let go"),
               ("BB", "two smiles", "to STEER"), ("BBB", "three smiles", "home (stop)")],
-    "steer": [("L", "left cheek", f"turn {STEER_DEG:.0f} deg to your left"), ("R", "right cheek", f"turn {STEER_DEG:.0f} deg to your right"),
+    "steer": [("L", "hold left cheek", "pan to your left while held"), ("R", "hold right cheek", "pan to your right while held"),
               ("B", "one smile", "grab / let go"), ("BB", "two smiles", "to SERVE"), ("BBB", "three smiles", "home (stop)")],
 }
 
@@ -99,6 +101,18 @@ async def publish_view(rig):
         pass
 
 
+def holding_now():
+    """Which cheek the face reader says is up right now: "L", "R", "B" or None (from face_status.json, 4 writes a second)."""
+    import json
+    try:
+        d = json.load(open(FACE_STATUS))
+    except (OSError, ValueError):
+        return None
+    if time.time() - d.get("t", 0) > 1.0:
+        return None
+    return d.get("holding")
+
+
 async def steer(rig, g):
     """One waist step, streamed like the follower's moves, so steps chain without stopping."""
     from viam.proto.component.arm import JointPositions
@@ -116,11 +130,28 @@ async def main(live, cube, face_feed):
         rig = await Rig(machine, live).setup()
         rig.last_grasp = None
         mode = "serve"; set_mode(mode)
+        steering = False
         since = time.time()
         last_view = 0.0
         await say(f"Served With a Smile. Layer SERVE. Left cheek: fetch the {cube} cube. Right cheek: feed Skully. One smile: let go. Two smiles: steer.")
         while True:
             groups = new_groups(since)
+            if mode == "steer" and live:
+                held = holding_now()
+                if held in ("L", "R"):
+                    # pan while the cheek is held: a small streamed step ten times a second
+                    from viam.proto.component.arm import JointPositions
+                    j = list((await rig.arm.get_joint_positions()).values)
+                    j[0] += STEER_SIGN[held] * STEER_RATE * 0.1
+                    asyncio.ensure_future(rig.arm.move_to_joint_positions(JointPositions(values=j)))
+                    if not steering:
+                        steering = True; log(held, "steer: panning while held")
+                    await asyncio.sleep(0.1)
+                    since = time.time()           # the cheek's own group event is the pan, not a jump
+                    continue
+                elif steering:
+                    steering = False
+                    log("-", "steer: stopped")
             if not groups:
                 if time.time() - last_view > 0.25:
                     await publish_view(rig); last_view = time.time()
@@ -182,10 +213,9 @@ async def main(live, cube, face_feed):
                         log(g, "ignored"); await say(f"{g}: nothing bound to that in SERVE")
                 else:   # steer
                     if g in ("L", "R"):
-                        ep = Episode.start("steer", g, mode=mode)
-                        j0 = await steer(rig, g) if live else None
-                        log(g, f"steer {'left' if g == 'L' else 'right'} {STEER_DEG:.0f} deg" + (f" (joint 0 now {j0:.0f})" if j0 is not None else ""))
-                        ep.end(True, f"joint 0 {'-' if g == 'L' else '+'}{STEER_DEG:.0f}", joint0=j0)
+                        if not live:
+                            log(g, f"steer {'left' if g == 'L' else 'right'} (dry)")
+                        # live: the pan already happened while the cheek was held; the event itself is not a jump
                     elif g == "B":
                         ep = Episode.start("grip", g, mode=mode)
                         if live:

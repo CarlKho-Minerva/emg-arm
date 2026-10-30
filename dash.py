@@ -298,7 +298,7 @@ nav button .dot{width:8px;height:8px;border-radius:50%;background:var(--line)}na
 nav button.on .dot.ok{background:var(--ok)}
 .focusbtn{margin-top:8px;border:1px solid var(--line)}.focusbtn.on{border-color:var(--ok);color:var(--ok)}
 body.focus .card:not(.heard):not(.checks),body.focus .lead,body.focus .tiles,body.focus .paper,body.focus .cap,body.focus .runbox,body.focus .foot,body.focus h2{opacity:.22;transition:opacity .3s}
-body.focus .pic,body.focus .heard,body.focus .checks{opacity:1}
+body.focus .pic,body.focus .heard,body.focus .cc3 .card:not(.checks){opacity:1}
 body.focus .cc .pic{max-height:56vh}
 .runbox{margin-top:auto;border-top:1px solid var(--line);padding-top:4px}
 .runrow{display:grid;grid-template-columns:10px 1fr auto auto;gap:6px;align-items:center;padding:3px 8px;font-size:13px}
@@ -333,9 +333,10 @@ td.g{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;width:42px;color:va
 svg text{fill:var(--mut);font:11px -apple-system,Inter,system-ui,sans-serif}svg .ax{stroke:var(--line)}svg .pt{fill:var(--acc)}svg .pt.h{fill:none;stroke:var(--acc);stroke-width:1.5}
 svg .ok{fill:var(--ok)}svg .no{fill:var(--bad)}svg .na{fill:var(--mut)}
 .cap{color:var(--mut);font-size:12.5px;max-width:80ch;margin:4px 0 0}
-.cc{display:grid;grid-template-columns:1.2fr 1.2fr 1fr;gap:16px;align-items:start}
-.cc .pic{aspect-ratio:4/3;max-height:40vh}
-.cc .heard{padding:10px 0 6px}.cc .heard .big{font-size:44px;min-height:44px}.cc .heard .big.idle{font-size:30px}
+.cc2{display:grid;grid-template-columns:1fr 1fr;gap:16px}.cc2 .pic{aspect-ratio:4/3;max-height:52vh}
+.cc3{display:grid;grid-template-columns:1fr 2fr 1.2fr;gap:14px;align-items:start}
+.cc3 .heard{padding:16px 0 10px}.cc3 .heard .big{font-size:56px;min-height:56px}.cc3 .heard .big.idle{font-size:36px}
+body.focus .cc3 .checks{opacity:.22}
 .paper{max-width:78ch}.paper h3{font-size:16px;font-weight:600;margin:18px 0 6px}.paper p{margin:0 0 10px;line-height:1.55}.paper .abs{border-left:2px solid var(--line);padding-left:14px;color:var(--fg)}
 .paper .fig{margin:12px 0 4px}.paper .cap b{color:var(--fg);font-weight:600}
 .story{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:26px;align-items:start}
@@ -369,29 +370,14 @@ pre.log{margin:0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color
 <main>
 <section id="all" class="on">
   <div class="k"><span>Command centre</span><span class="tag" id="all_layer"></span></div>
-  <div class="cc">
-    <div>
-      <div class="k"><span>Wrist camera</span><span class="tag" id="robot_tag2">-</span></div>
-      <div class="pic"><img id="robot2" src="/robot.jpg" alt="robot camera"></div>
-      <div class="card checks" style="margin-top:10px"><div class="k"><span>What the feed requires</span><span class="tag" id="checks_tag2"></span></div><table><tbody id="checks2"></tbody></table></div>
-    </div>
-    <div>
-      <div class="k"><span>Laptop camera</span><span class="tag" id="face_tag2">-</span></div>
-      <div class="pic"><img id="face2" src="/face.jpg" alt="your face"></div>
-      <div class="card heard" style="margin-top:10px"><div class="big idle" id="heard2">...</div><div class="sub" id="heard_sub2"></div></div>
-      <div class="card" style="margin-top:10px"><div class="k">This layer</div><table><tbody id="controls2"></tbody></table></div>
-    </div>
-    <div>
-      <div class="k"><span>Episodic memory</span><span class="tag" id="mongo_tag2">-</span></div>
-      <div class="tiles" style="grid-template-columns:repeat(2,1fr)">
-        <div class="tile"><div class="n" id="t2_total">0</div><div class="l">episodes</div></div>
-        <div class="tile"><div class="n" id="t2_today">0</div><div class="l">live today</div></div>
-        <div class="tile"><div class="n" id="t2_fetch">0/0</div><div class="l">fetch ok</div></div>
-        <div class="tile"><div class="n" id="t2_feed">0/0</div><div class="l">Skully fed</div></div>
-      </div>
-      <div class="card" style="margin-top:10px"><div class="k">What it did, as it wrote it</div><table><tbody id="rows2"></tbody></table></div>
-      <div class="card" style="margin-top:10px"><div class="k">The last episodes</div><table><tbody id="eps2"></tbody></table></div>
-    </div>
+  <div class="cc2">
+    <div><div class="k"><span>Wrist camera</span><span class="tag" id="robot_tag2">-</span></div><div class="pic"><img id="robot2" src="/robot.jpg" alt="robot camera"></div></div>
+    <div><div class="k"><span>Laptop camera</span><span class="tag" id="face_tag2">-</span></div><div class="pic"><img id="face2" src="/face.jpg" alt="your face"></div></div>
+  </div>
+  <div class="cc3">
+    <div class="card heard"><div class="big idle" id="heard2">...</div><div class="sub" id="heard_sub2"></div></div>
+    <div class="card"><div class="k"><span>What it did, as it wrote it</span><span class="tag" id="log_tag2"></span></div><table><tbody id="rows2"></tbody></table></div>
+    <div class="card checks"><div class="k"><span>The feed requires</span><span class="tag" id="checks_tag2"></span></div><table><tbody id="checks2"></tbody></table></div>
   </div>
 </section>
 <section id="robot">
@@ -554,11 +540,8 @@ async function tick(){
   $('face_tag2').textContent=$('face_tag').textContent;$('face_tag2').className=$('face_tag').className;
   $('checks2').innerHTML=$('checks').innerHTML;$('checks_tag2').textContent=$('checks_tag').textContent;
   $('heard2').textContent=h.textContent;$('heard2').className=h.className;$('heard_sub2').textContent=$('heard_sub').textContent;
-  $('controls2').innerHTML=$('controls').innerHTML;$('all_layer').textContent=md?`layer ${md.mode.toUpperCase()}`:'arm loop not running';$('all_layer').className='tag '+(md?'ok':'warn');
-  $('mongo_tag2').textContent=$('mongo_tag').textContent;$('mongo_tag2').className=$('mongo_tag').className;
-  $('t2_total').textContent=ep.total||0;$('t2_today').textContent=ep.live||0;$('t2_fetch').textContent=$('t_fetch').textContent;$('t2_feed').textContent=$('t_feed').textContent;
-  $('rows2').innerHTML=rows.slice(-6).map(r=>`<tr><td class="t">${r.time}</td><td class="f">${esc(r.face)}</td><td class="a">${esc(r.action)}</td></tr>`).join('');
-  $('eps2').innerHTML=last.slice(0,5).map(e=>`<tr><td class="t">${e.t_start?new Date(e.t_start*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''}</td><td class="${e.ok===true?'ok':e.ok===false?'no':'na'}">${e.ok===true?'&#10003;':e.ok===false?'&#10007;':'?'}</td><td class="f">${esc(e.kind)}</td><td class="a">${esc(e.reason)}</td></tr>`).join('');
+  $('log_tag2').textContent=$('log_tag').textContent;$('all_layer').textContent=md?`layer ${md.mode.toUpperCase()}`:'arm loop not running';$('all_layer').className='tag '+(md?'ok':'warn');
+  $('rows2').innerHTML=rows.slice(-9).map(r=>`<tr><td class="t">${r.time}</td><td class="f">${esc(r.face)}</td><td class="a">${esc(r.action)}</td></tr>`).join('');
   $('d_all').className='dot '+((robotLive&&fresh&&mg.ok)?'ok':'warn');
   const sig=`${ep.total}|${(ep.follow_runs||[]).length}`;if(sig!==lastSig){lastSig=sig;$('c_follow').innerHTML=followChart(ep.follow_runs||[]);$('c_time').innerHTML=timeChart(ep.timeline||[]);}
 }
