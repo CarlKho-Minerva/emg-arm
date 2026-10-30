@@ -28,6 +28,7 @@ LABEL_Z = 100.0        # mm above the table: the blue label, the middle of the b
 PRE_MM = 160.0         # stop this far short of the bottle's axis before sliding in
 IN_MM = 35.0           # gripper frame this far short of the axis when closing (fingers reach past it)
 LIFT_MM = 100.0
+HELD_POS = 60.0        # finger position above this after closing = something is between the fingers
 SOFT_SPEED = 800.0     # gripper closing speed while grasping (driver default 2000); gentler on the bottle
 
 
@@ -87,7 +88,15 @@ async def pick(rig):
     except Exception as e:
         await say(f"could not soften the gripper: {str(e)[:60]}")
     held = await rig.gripper.grab()
-    await say(f"gripper closed, holding something: {held}")
+    # the driver's "held" flag misses a soft, empty bottle (reported False on 29 Oct 17:31 with the fingers on it);
+    # the finger position is the honest answer: fully closed means nothing, stopped part-way means something
+    try:
+        posn = (await rig.gripper.do_command({"get": True})).get("pos", -1)
+    except Exception:
+        posn = -1
+    await say(f"gripper closed: driver says held={held}, finger position {posn:.0f} (0 = fully closed, 850 = open)")
+    if posn > HELD_POS:
+        held = True
     try:
         await rig.gripper.do_command({"set_gripper_speed": 2000.0})
     except Exception:
