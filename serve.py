@@ -26,7 +26,8 @@ import time
 
 from camgrab import grab
 from episodes import Episode
-from handme import Rig, feed, feed_held, say
+from handme import Rig, feed, feed_held, say, tape_point
+from viam.components.switch import Switch
 from pick import HELD_MAX, HELD_MIN, pick, settled_fingers
 from skull import feed_skully
 from viamarm import connect
@@ -44,7 +45,7 @@ FACE_STATUS = os.path.join(HERE, "data", "face_status.json")
 STEER_SIGN = {"L": -1.0, "R": +1.0}
 
 MODES = {
-    "serve": [("L", "left cheek", "fetch the cube"), ("R", "right cheek", "feed Skully: follows him; still = cube to the mouth; smile lets go"), ("B", "one smile", "let go"),
+    "serve": [("L", "left cheek", "fetch the cube"), ("R", "right cheek", "extend to Skully and let go (after a fetch the arm follows him on its own)"), ("B", "one smile", "let go"),
               ("BB", "two smiles", "to STEER"), ("BBB", "three smiles", "home (stop)")],
     "steer": [("L", "hold left cheek", "pan to your left while held"), ("R", "hold right cheek", "pan to your right while held"),
               ("B", "one smile", "grab / let go"), ("BB", "two smiles", "to SERVE"), ("BBB", "three smiles", "home (stop)")],
@@ -122,7 +123,65 @@ async def steer(rig, g):
     return j[0]
 
 
-SKULLY_MODE = "held"     # "held": Carl holds Skully up, the arm follows the tape and extends the cube (30 Oct 14:53); "table": skull.py's path
+SKULLY_MODE = "extend"   # "extend": after the fetch the arm follows the tape on its own; a smile sends it to the saved pose "extend" and opens
+                         # (Carl, 30 Oct 15:10). "approach": depth-ranged approach to the mouth (feed_held). "table": skull.py's path.
+EXTEND_POSE = "extend"   # saved with: .venv/bin/python savepose.py extend   (jog the arm to the hand-off pose first)
+EXTEND_S = 5.0           # seconds to give the go-to before opening
+
+
+async def follow_step(rig, state):
+    """One step of keeping the tape on Skully's nose centred in the wrist camera: the follower's pan/tilt
+    (waist and elbow), streamed. state holds the smoothed point and the step filter between calls."""
+    from follow import DEADBAND, GAIN, SMOOTH, STEP_CAP
+    from viam.proto.component.arm import JointPositions
+    try:
+        jpeg, _ = await asyncio.wait_for(grab(rig.cam, want_depth=False), 2)
+    except Exception:
+        return
+    tmp = LIVE_JPG + ".serve.tmp"
+    with open(tmp, "wb") as f:
+        f.write(jpeg)
+    os.replace(tmp, LIVE_JPG)
+    raw = tape_point(jpeg)
+    if raw is None:
+        state["seen"] = False
+        return
+    state["seen"] = True
+    sm = state.get("sm")
+    sm = raw if sm is None else (sm[0] + SMOOTH * (raw[0] - sm[0]), sm[1] + SMOOTH * (raw[1] - sm[1]))
+    state["sm"] = sm
+    ex, ey = sm[0] - 0.5, sm[1] - 0.5
+    if abs(ex) < DEADBAND and abs(ey) < DEADBAND:
+        return
+    dx = max(-STEP_CAP, min(STEP_CAP, -GAIN * ex)); dy = max(-STEP_CAP, min(STEP_CAP, GAIN * ey))
+    state["adx"] = state.get("adx", 0.0) + 0.7 * (dx - state.get("adx", 0.0))
+    state["ady"] = state.get("ady", 0.0) + 0.7 * (dy - state.get("ady", 0.0))
+    if rig.live:
+        j = list((await rig.arm.get_joint_positions()).values)
+        j[0] += state["adx"]; j[2] += state["ady"]
+        asyncio.ensure_future(rig.arm.move_to_joint_positions(JointPositions(values=j)))
+
+
+async def extend_and_release(rig):
+    """Go to the saved "extend" pose, open the gripper, back to greet. Returns (ok, reason)."""
+    if not rig.live:
+        return True, "dry: would extend and open"
+    try:
+        await rig.machine.refresh()
+        names = [r.name for r in rig.machine.resource_names]
+    except Exception:
+        names = []
+    if EXTEND_POSE not in names:
+        await say(f"no saved pose '{EXTEND_POSE}': jog the arm to the hand-off pose and run savepose.py {EXTEND_POSE}. Opening here instead.")
+        await rig.gripper.open(); await asyncio.sleep(1)
+        return False, f"no '{EXTEND_POSE}' pose saved; opened at greet"
+    await say(f"extending to '{EXTEND_POSE}'")
+    await Switch.from_robot(rig.machine, EXTEND_POSE).set_position(2)
+    await asyncio.sleep(EXTEND_S)
+    await rig.gripper.open(); await say("released")
+    await asyncio.sleep(1.5)
+    await rig.greet.set_position(2)
+    return True, "extended and released"
 
 
 async def main(live, cube, face_feed):
@@ -131,6 +190,7 @@ async def main(live, cube, face_feed):
         rig.last_grasp = None
         mode = "serve"; set_mode(mode)
         steering = False
+        following = False; fstate = {}
         since = time.time()
         last_view = 0.0
         await say(f"Served With a Smile. Layer SERVE. Left cheek: fetch the {cube} cube. Right cheek: feed Skully. One smile: let go. Two smiles: steer.")
@@ -153,6 +213,10 @@ async def main(live, cube, face_feed):
                     steering = False
                     log("-", "steer: stopped")
             if not groups:
+                if following and mode == "serve":
+                    await follow_step(rig, fstate)          # keeps the tape centred; ~8 to 10 steps a second
+                    await asyncio.sleep(0.03)
+                    continue
                 if time.time() - last_view > 0.25:
                     await publish_view(rig); last_view = time.time()
                 await asyncio.sleep(0.05)
@@ -165,20 +229,42 @@ async def main(live, cube, face_feed):
                     log(g, "home, gripper open")
                     if live:
                         await rig.gripper.open(); await rig.home.set_position(2)
-                    mode = "serve"; set_mode(mode)
+                    mode = "serve"; set_mode(mode); following = False
                     ep.end(True, "home"); await say("home; layer SERVE")
                 elif g == "BB":
-                    mode = "steer" if mode == "serve" else "serve"; set_mode(mode)
+                    mode = "steer" if mode == "serve" else "serve"; set_mode(mode); following = False
                     log(g, f"layer {mode.upper()}")
                     Episode.start("switch", g, mode=mode).end(True, f"layer {mode}")
                     await say(f"layer {mode.upper()}")
                 elif mode == "serve":
                     if g == "L":
+                        following = False
                         ep = Episode.start("fetch", g, cube=cube, mode=mode)
                         ok = await pick(rig, cube)
                         log(g, "fetch: picked and proved" if ok else "fetch: missed")
                         ep.end(ok, "picked and proved" if ok else "missed", grasp=rig.last_grasp)
-                        await say("fetched; at greet" if ok else "could not fetch")
+                        if ok and SKULLY_MODE == "extend":
+                            following = True; fstate = {}
+                            log("-", "following Skully's tape; a smile extends and lets go")
+                            await say("fetched; following Skully. Smile when he is ready.")
+                        else:
+                            await say("fetched; at greet" if ok else "could not fetch")
+                    elif g in ("R", "B") and SKULLY_MODE == "extend":
+                        ep = Episode.start("feed_skully", g, mode=mode, how="extend")
+                        if not await holding(rig):
+                            if g == "B":
+                                log(g, "let go (nothing held)"); ep.end(True, "opened, nothing held")
+                                if live:
+                                    await rig.gripper.open()
+                                continue
+                            log(g, "feed Skully refused: nothing in the gripper (left cheek first)")
+                            ep.end(False, "nothing in the gripper")
+                            await say("nothing in the gripper; left cheek first")
+                            continue
+                        following = False
+                        ok, why = await extend_and_release(rig)
+                        log(g, f"feed Skully: {why}")
+                        ep.end(ok, why)
                     elif g == "R":
                         ep = Episode.start("feed_skully", g, mode=mode)
                         if not await holding(rig):
@@ -186,7 +272,7 @@ async def main(live, cube, face_feed):
                             ep.end(False, "nothing in the gripper")
                             await say("nothing in the gripper to feed him with; left cheek first")
                             continue
-                        if SKULLY_MODE == "held":
+                        if SKULLY_MODE == "approach":
                             fed = await feed_held(rig)
                             why = "cube brought to the mouth; smile let go" if fed else "Skully not seen still; cube kept"
                             log(g, f"feed Skully (held): {why}")
@@ -236,7 +322,7 @@ if __name__ == "__main__":
     ap.add_argument("--live", action="store_true")
     ap.add_argument("--cube", default="green")
     ap.add_argument("--face-feed", action="store_true", help="let the open mouth (M) run the feed-a-person path")
-    ap.add_argument("--skully", choices=["held", "table"], default="held", help="held: Carl holds Skully up (default); table: skull.py's find-from-home path")
+    ap.add_argument("--skully", choices=["extend", "approach", "table"], default="extend", help="extend (default): follow, then a smile goes to the saved 'extend' pose and opens; approach: depth-ranged; table: skull.py")
     a = ap.parse_args()
     SKULLY_MODE = a.skully
     asyncio.run(main(a.live, a.cube, a.face_feed))
