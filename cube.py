@@ -22,6 +22,7 @@ from viamarm import connect
 
 CUBE_MM = 48.0          # side of the foam cubes; the table is z=0 so the top is at CUBE_MM
 MIN_AREA = 150          # pixels at 640x480; smaller blobs are noise
+HOME_AREA = (250, 3000) # a cube's blob area from the home view (measured 29 Oct: 518 to 786 px)
 MAX_REACH = 750.0
 # hue ranges (OpenCV hue 0..179), saturation and value floors; red wraps around 0
 COLOURS = {
@@ -107,15 +108,24 @@ async def find_cubes(machine, cam, intr, colours=None):
         bl = blobs(bgr, colour)
         if not bl:
             continue
-        for area, (cu, cv_), box in bl[:3]:              # biggest blobs first; the first one on the table wins
+        cands = []
+        for area, (cu, cv_), box in bl:
+            bw, bh = box[2], box[3]
+            if not (0.55 < bw / max(bh, 1) < 1.8) or not (HOME_AREA[0] <= area <= HOME_AREA[1]):
+                continue                                  # not a cube from here: the orange stand, the chair, tape
             mm = depth_mm(depth, cu, cv_, w_img, h_img)
             if not mm:
                 continue
             top = await to_world(machine, intr, cu, cv_, mm)
             # on the table: z near 0 (the depth frame reads about 4 cm low) and not out in the room (blue chairs, tape)
             if -80 < top[2] < 120 and math.hypot(top[0], top[1]) < 1300:
-                found[colour] = (top, area, box)
-                break
+                cands.append((math.hypot(top[0], top[1]), top, area, box))
+        if cands:
+            # of the cube-shaped blobs on the table, the nearest to the arm: the cubes sit near it, the orange
+            # phone stand and the phone sit by the laptop further out
+            cands.sort()
+            _, top, area, box = cands[0]
+            found[colour] = (top, area, box)
     return found
 
 
