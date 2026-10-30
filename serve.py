@@ -204,10 +204,17 @@ async def push_forward(rig):
     try:
         g = (await rig.motion.get_pose("gripper", "world")).pose
         n = (g.o_x ** 2 + g.o_y ** 2 + g.o_z ** 2) ** 0.5 or 1.0
-        tx, ty, tz = g.x + FORWARD_MM * g.o_x / n, g.y + FORWARD_MM * g.o_y / n, max(g.z + FORWARD_MM * g.o_z / n, 80.0)
-        await say(f"feeding forward {FORWARD_MM:.0f} mm to x={tx:.0f} y={ty:.0f} z={tz:.0f}")
-        await asyncio.wait_for(rig.arm.move_to_position(Pose(x=tx, y=ty, z=tz, o_x=g.o_x, o_y=g.o_y, o_z=g.o_z, theta=g.theta)), 15)
-        return True
+        for mm in (FORWARD_MM, 100.0, 70.0, 45.0):          # from a greet near full reach 150 had no IK solution (15:47); take the first that does
+            tx, ty, tz = g.x + mm * g.o_x / n, g.y + mm * g.o_y / n, max(g.z + mm * g.o_z / n, 80.0)
+            try:
+                await asyncio.wait_for(rig.arm.move_to_position(Pose(x=tx, y=ty, z=tz, o_x=g.o_x, o_y=g.o_y, o_z=g.o_z, theta=g.theta)), 15)
+                await say(f"fed forward {mm:.0f} mm to x={tx:.0f} y={ty:.0f} z={tz:.0f}")
+                return True
+            except Exception as e:
+                if "IK" not in str(e) and "solution" not in str(e):
+                    raise
+                await say(f"   {mm:.0f} mm forward has no arm solution; trying shorter")
+        return False
     except Exception as e:
         await say(f"forward move refused ({str(e)[:60]}); using the saved pose")
         return False
