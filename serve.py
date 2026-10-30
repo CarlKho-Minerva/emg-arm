@@ -91,7 +91,7 @@ async def holding(rig):
 async def publish_view(rig):
     try:
         jpeg, _ = await asyncio.wait_for(grab(rig.cam, want_depth=False), 2)
-        tmp = LIVE_JPG + ".tmp"
+        tmp = LIVE_JPG + ".serve.tmp"
         with open(tmp, "wb") as f:
             f.write(jpeg)
         os.replace(tmp, LIVE_JPG)

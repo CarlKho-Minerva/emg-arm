@@ -25,7 +25,7 @@ async def main():
         while True:
             try:
                 jpeg, _ = await asyncio.wait_for(grab(cam, want_depth=False), 3)
-                tmp = LIVE_JPG + ".tmp"
+                tmp = LIVE_JPG + ".view.tmp"   # its own name: serve.py writes live.jpg.tmp, and two writers on one tmp name made the picture vanish (30 Oct 14:48)
                 with open(tmp, "wb") as f:
                     f.write(jpeg)
                 os.replace(tmp, LIVE_JPG)
