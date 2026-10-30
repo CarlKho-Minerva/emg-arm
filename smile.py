@@ -152,7 +152,8 @@ def load_calib():
 
 
 def main(window=True, cam=0):
-    up_l, up_r, down, _ = load_calib()
+    up_l, up_r, down, jaw_open = load_calib()
+    mouth_up = False; mouth_at = 0.0
     print(f"thresholds: left {up_l:.2f} right {up_r:.2f} release {down:.2f}" + ("" if os.path.exists(CALIB) else " (defaults; run --calibrate)"), flush=True)
     det = detector()
     cap = cv2.VideoCapture(cam)
@@ -175,6 +176,13 @@ def main(window=True, cam=0):
         res = det.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), int((time.time() - t0) * 1000))
         sc = smile_scores(res)
         now = time.time()
+        if sc and res.face_blendshapes:
+            jaw = {b.category_name: b.score for b in res.face_blendshapes[0]}.get("jawOpen", 0.0)
+            if jaw > jaw_open and not mouth_up and now - mouth_at > 2.0:
+                mouth_up = True; mouth_at = now
+                write_group("M"); print(f"{time.strftime('%H:%M:%S')} GROUP M (mouth open)", flush=True)
+            elif jaw < jaw_open * 0.6:
+                mouth_up = False
         if sc:
             l, r = sc
             # after the mirror, the picture's left is YOUR left, and the model's "Left" is the picture's left

@@ -4,7 +4,8 @@
 
 Fetch mode (start, at greet):
   L     grab the food: home, find the green cube, pick, prove the grip, back to greet
-  R     feed me: follow the left hand and hand it over (palm under the gripper), tonight's verified path
+  R     hand it over: follow the left hand, palm under the gripper, release (verified path)
+  M     (open mouth) feed me: follow the face, hold the cube in front of the mouth 2 s, take it back
   B     let go now (gripper opens wherever it is)
   BB    Nudge mode
   BBB   home, gripper open, Fetch mode
@@ -23,7 +24,7 @@ import time
 from viam.proto.common import Pose
 from viam.components.switch import Switch
 
-from handme import Rig, handover, say
+from handme import Rig, feed, handover, say
 from pick import pick, settled_fingers, HELD_MIN, HELD_MAX
 from viamarm import connect
 
@@ -95,8 +96,11 @@ async def main(live, cube):
                         ok = await pick(rig, cube)
                         await say("fetched; at greet" if ok else "could not fetch")
                     elif g == "R":
-                        log(g, "feed")
+                        log(g, "hand it over (palm)")
                         await handover(rig)
+                    elif g == "M":
+                        log(g, "feed")
+                        await feed(rig, put_back=rig.last_grasp)
                     elif g == "B":
                         log(g, "let go")
                         if live:
