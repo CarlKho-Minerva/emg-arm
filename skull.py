@@ -32,7 +32,7 @@ from camgrab import grab
 from cube import cam_offset, depth_mm, pixel_to_plane, to_world
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TAPE_HSV = ((95, 150, 60), (125, 255, 255))   # the painter's tape: hue 107, sat 222 on the table photo (30 Oct); the navy banner is sat ~140
+TAPE_HSV = ((95, 200, 70), (125, 255, 255))   # the painter's tape: hue 103-107, sat 222-233 (30 Oct); the navy banner and chairs read sat 140-185 and fooled the follower at 15:13
 TAPE_AREA = (100, 6000)                        # blob area in pixels at 640x480, home view to a close look
 TAPE_HUE, TAPE_SAT = 105, 226                  # the tape as the wrist camera sees it (home view, 30 Oct 14:00)
 TAPE_MIN_Z, TAPE_MAX_Z = 55.0, 320.0           # the tape sits higher than a cube top (48, read ~40 low) and lower than a head

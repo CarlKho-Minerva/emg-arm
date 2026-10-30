@@ -28,7 +28,10 @@ LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "face.log
 UP, DOWN = 0.18, 0.10      # a side counts as pulled above UP, released below DOWN (Carl's cheek pull reads 0.20, rest 0.08)
 SIDE_GAP = 0.10            # one side must beat the other by this to be one-sided; closer = both
 GROUP_S = 0.5              # smiles within this are one group (B, BB, BBB); quiet this long ends it (0.8 felt slow, Carl 30 Oct 15:00)
-MIN_HOLD_S = 0.08          # a corner must stay up this long (one blink of noise is not a smile)
+MIN_HOLD_S = 0.08          # a smile must stay up this long (one blink of noise is not a smile)
+CHEEK_HOLD_S = 0.25        # a cheek must stay up this long: a quick asymmetry while moving or talking read as R (24 false R in 8 min, 30 Oct 15:13)
+CHEEK_REPEAT_S = 1.5       # the same cheek does not fire twice within this
+YAW_MAX = 0.4              # head turned more than this (nose offset over eye distance) and a cheek is not read: one side is foreshortened
 REFRACTORY_S = 0.2         # after a cheek release, nothing new counts for this long (a relaxing cheek crosses the other side's line)
 REFRACTORY_B_S = 0.5       # after a SMILE release: a smile that flickers off and on read as BB and flipped the layer (30 Oct 15:05)
 
@@ -311,6 +314,7 @@ def main(window=True, cam=0):
     cap = open_camera(cam)
     up = None            # the event currently being held: "L", "R", "B" or None
     last_up = None
+    last_cheek = {}
     released_at = 0.0
     up_since = 0.0
     counted = False
@@ -339,7 +343,9 @@ def main(window=True, cam=0):
             from train_face import predict
             shapes = {b.category_name: b.score for b in res.face_blendshapes[0]}
             shapes.update(geo_features(res))
-            label, _ = predict(model, shapes, rest_margin=0.2)
+            label, _ = predict(model, shapes, rest_margin=0.35)
+            if label in ("left", "right") and abs(shapes.get("geo_yaw", 0.0)) > YAW_MAX:
+                label = "other"                    # head turned: a cheek reading is not trusted
         if sc and res.face_blendshapes:
             jaw = {b.category_name: b.score for b in res.face_blendshapes[0]}.get("jawOpen", 0.0)
             if jaw > jaw_open and not mouth_up and now - mouth_at > 2.0:
@@ -361,9 +367,13 @@ def main(window=True, cam=0):
                         up = "L" if (l - up_l) > (r - up_r) else "R"
                     up_since = now; counted = False
             else:
-                if not counted and now - up_since >= MIN_HOLD_S:
+                need = CHEEK_HOLD_S if up in ("L", "R") else MIN_HOLD_S
+                if not counted and now - up_since >= need:
                     counted = True
-                    if up in ("L", "R") and not group:
+                    if up in ("L", "R") and not group and now - last_cheek.get(up, 0.0) < CHEEK_REPEAT_S:
+                        pass                                   # the same cheek again within CHEEK_REPEAT_S: one command, not two
+                    elif up in ("L", "R") and not group:
+                        last_cheek[up] = now
                         # a cheek is a command by itself (LL and RR mean nothing), so it goes out the moment it is
                         # confirmed instead of waiting GROUP_S for a group to close: about 0.1 s from onset to the arm
                         write_group(up); print(f"{time.strftime('%H:%M:%S')} GROUP {up} (at once)", flush=True)

@@ -178,10 +178,52 @@ async def follow_step(rig, state):
         asyncio.ensure_future(rig.arm.move_to_joint_positions(JointPositions(values=j))).add_done_callback(_quiet)
 
 
-async def extend_and_release(rig):
-    """Go to the saved "extend" pose, open the gripper, back to greet. Returns (ok, reason)."""
+EXTEND_SHORT_MM = 80.0    # stop this far short of the tape (the cube's centre sits ~60 mm ahead of the steered point)
+EXTEND_MIN, EXTEND_MAX = 60.0, 350.0
+
+
+async def extend_toward_tape(rig, fstate):
+    """Push the gripper straight toward the tape the follower centred: range it with the depth map, move along
+    the line from the gripper to it, stop EXTEND_SHORT_MM short, keep the current orientation. Returns mm moved or None."""
+    from follow import depth_at
+    from viam.proto.common import Pose, PoseInFrame
+    sm = fstate.get("sm")
+    if not sm or not fstate.get("seen"):
+        return None
+    try:
+        _, depth = await asyncio.wait_for(grab(rig.cam, want_depth=True), 3)
+        mm = depth_at(depth, *sm) if depth else None
+        if not mm or mm < 200:
+            return None
+        intr = rig.intr
+        u_, v_ = sm[0] * intr.width_px, sm[1] * intr.height_px
+        x = (u_ - intr.center_x_px) * mm / intr.focal_x_px; y = (v_ - intr.center_y_px) * mm / intr.focal_y_px
+        tgt = (await rig.machine.transform_pose(PoseInFrame(reference_frame="cam", pose=Pose(x=x, y=y, z=mm, o_z=1)), "world")).pose
+        g = (await rig.motion.get_pose("gripper", "world")).pose
+        dx, dy, dz = tgt.x - g.x, tgt.y - g.y, tgt.z - g.z
+        dist = (dx * dx + dy * dy + dz * dz) ** 0.5
+        go = max(EXTEND_MIN, min(EXTEND_MAX, dist - EXTEND_SHORT_MM))
+        k = go / dist
+        nx, ny, nz = g.x + dx * k, g.y + dy * k, max(g.z + dz * k, 80.0)
+        await say(f"tape {dist:.0f} mm from the gripper; extending {go:.0f} mm toward it")
+        await asyncio.wait_for(rig.arm.move_to_position(Pose(x=nx, y=ny, z=nz, o_x=g.o_x, o_y=g.o_y, o_z=g.o_z, theta=g.theta)), 15)
+        return go
+    except Exception as e:
+        await say(f"natural extend not possible ({str(e)[:60]}); using the saved pose")
+        return None
+
+
+async def extend_and_release(rig, fstate=None):
+    """Extend toward the tape (or to the saved "extend" pose), open the gripper, back to greet. Returns (ok, reason)."""
     if not rig.live:
         return True, "dry: would extend and open"
+    moved = await extend_toward_tape(rig, fstate or {})
+    if moved is not None:
+        await asyncio.sleep(0.8)
+        await rig.gripper.open(); await say("released")
+        await asyncio.sleep(1.5)
+        await rig.greet.set_position(2)
+        return True, f"extended {moved:.0f} mm toward the tape and released"
     try:
         await rig.machine.refresh()
         names = [r.name for r in rig.machine.resource_names]
@@ -278,7 +320,7 @@ async def main(live, cube, face_feed):
                             await say("nothing in the gripper; left cheek first")
                             continue
                         following = False
-                        ok, why = await extend_and_release(rig)
+                        ok, why = await extend_and_release(rig, fstate)
                         log(g, f"feed Skully: {why}")
                         ep.end(ok, why)
                     elif g == "R":
