@@ -5,10 +5,11 @@
 
 Steps:
   1. home pose (looking down at the table), gripper open. Find the nearest standing bottle within reach.
-  2. planner: gripper to a point ABOVE_MM above the grasp point, fingers pointing down.
-  3. planner: straight down to the grasp point. Close. Report whether something is held.
-  4. planner: back up ABOVE_MM; go to greet (facing Carl). Then the handover from handme.py
-     (watch for the left hand, go to 20 cm short of it, open, back to greet).
+  2. planner: gripper level at label height, PRE_MM short of the bottle, pointing at it (a side grasp,
+     like a hand, not a claw from above).
+  3. planner: slide in to the label. Close gently. Report whether something is held.
+  4. planner: lift; go to greet (facing Carl). Then the handover from handme.py: follow the left hand,
+     re-planning as it moves, and let go only once the hand has stayed at the gripper for a second.
 Nothing learns; the detector finds, the planner moves.
 """
 import argparse
@@ -23,10 +24,15 @@ from handme import Rig, handover, say
 from viamarm import connect
 
 ABOVE_MM = 120.0
+LABEL_Z = 100.0        # mm above the table: the blue label, the middle of the bottle's body
+PRE_MM = 160.0         # stop this far short of the bottle's axis before sliding in
+IN_MM = 35.0           # gripper frame this far short of the axis when closing (fingers reach past it)
+LIFT_MM = 100.0
+SOFT_SPEED = 800.0     # gripper closing speed while grasping (driver default 2000); gentler on the bottle
 
 
-async def plan_to(rig, x, y, z, label):
-    dest = PoseInFrame(reference_frame="world", pose=Pose(x=x, y=y, z=z, o_x=0, o_y=0, o_z=-1, theta=0))
+async def plan_to(rig, x, y, z, label, o=(0.0, 0.0, -1.0), theta=0.0):
+    dest = PoseInFrame(reference_frame="world", pose=Pose(x=x, y=y, z=z, o_x=o[0], o_y=o[1], o_z=o[2], theta=theta))
     t0 = time.time()
     try:
         ok = await rig.motion.move(component_name="gripper", destination=dest)
@@ -43,6 +49,7 @@ async def plan_to(rig, x, y, z, label):
 
 
 async def pick(rig):
+    """Side grasp: come in level at label height from the base's side, slide in, close gently, lift."""
     await say("to home (the view of the table), gripper open")
     if rig.live:
         await rig.home.set_position(2); await asyncio.sleep(5)
@@ -50,19 +57,39 @@ async def pick(rig):
     bottles, _ = await find_bottles(rig.machine, rig.cam, rig.intr)
     bottles = [b for b in bottles if b[0] >= 0.5 and math.hypot(b[2][0], b[2][1]) <= MAX_REACH]
     if not bottles:
-        await say("no bottle within reach; put it on the table nearer the arm"); return False
+        await say("bottle not seen, or further than the arm can reach; put it nearer the arm"); return False
     conf, box, c, top, g = bottles[0]
-    await say(f"bottle (conf {conf:.2f}) at x={c[0]:.0f} y={c[1]:.0f}, {math.hypot(c[0], c[1]):.0f} mm from the base; "
-              f"grasp at z={g[2]:.0f}")
+    cx, cy = c[0], c[1]
+    flat = math.hypot(cx, cy)
+    dx, dy = cx / flat, cy / flat                       # from the base toward the bottle, level
+    pre = (cx - dx * PRE_MM, cy - dy * PRE_MM, LABEL_Z)
+    grasp = (cx - dx * IN_MM, cy - dy * IN_MM, LABEL_Z)
+    await say(f"bottle (conf {conf:.2f}) at x={cx:.0f} y={cy:.0f}, {flat:.0f} mm from the base; "
+              f"side grasp at the label, z={LABEL_Z:.0f}")
     if not rig.live:
-        await say(f"would go above it (z={g[2] + ABOVE_MM:.0f}), down to z={g[2]:.0f}, close, lift"); return True
-    if not await plan_to(rig, g[0], g[1], g[2] + ABOVE_MM, "above the bottle"):
+        await say(f"would go to x={pre[0]:.0f} y={pre[1]:.0f} level, facing it; slide to x={grasp[0]:.0f} y={grasp[1]:.0f}; close; lift {LIFT_MM:.0f}")
+        return True
+    face = (dx, dy, 0.0)
+    ok = False
+    for theta in (0.0, 90.0):                             # which way the fingers close: try both
+        ok = await plan_to(rig, *pre, f"beside the bottle, level (theta {theta:.0f})", o=face, theta=theta)
+        if ok:
+            break
+    if not ok:
         return False
-    if not await plan_to(rig, g[0], g[1], g[2], "down to the grasp"):
+    if not await plan_to(rig, *grasp, "slide in to the label", o=face, theta=theta):
         return False
+    try:
+        await rig.gripper.do_command({"set_gripper_speed": SOFT_SPEED})
+    except Exception as e:
+        await say(f"could not soften the gripper: {str(e)[:60]}")
     held = await rig.gripper.grab()
     await say(f"gripper closed, holding something: {held}")
-    if not await plan_to(rig, g[0], g[1], g[2] + ABOVE_MM, "lift"):
+    try:
+        await rig.gripper.do_command({"set_gripper_speed": 2000.0})
+    except Exception:
+        pass
+    if not await plan_to(rig, grasp[0], grasp[1], grasp[2] + LIFT_MM, "lift", o=face, theta=theta):
         return False
     await say("to greet, to find your hand")
     await rig.greet.set_position(2); await asyncio.sleep(5)

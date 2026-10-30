@@ -37,6 +37,10 @@ STANDOFF = 200.0      # mm short of the hand
 REACH = 800.0         # mm, furthest the gripper may be from the base
 MIN_Z = 150.0         # mm above the table
 TAKE_S = 5.0          # seconds the gripper stays open for Carl to take it
+REPLAN_MM = 50.0      # re-plan when the hand has moved more than this
+RELEASE_MM = 120.0    # hand this close to the gripper...
+RELEASE_S = 1.0       # ...for this long: let go
+FOLLOW_MAX_S = 60.0   # give up following after this
 
 
 def target_for(hx, hy, hz):
@@ -83,82 +87,49 @@ async def place_bottle(rig):
 
 
 async def handover(rig):
-    """Watch for Carl's steady left hand, plan to STANDOFF short of it, open, return to greet."""
+    """Follow Carl's left hand with the bottle: re-plan whenever the hand moves more than REPLAN_MM,
+    and let go only when the hand has stayed within RELEASE_MM of the gripper for RELEASE_S."""
     machine, cam, intr, det, pose, motion, gripper, greet, live = (rig.machine, rig.cam, rig.intr, rig.det, rig.pose,
                                                                    rig.motion, rig.gripper, rig.greet, rig.live)
-    if True:
-        # 2. watch for a steady left hand
-        await say("watching for your left hand")
-        seen, last, sm = 0, None, None
-        frame_n = 0
-        body_cache = (None, None, None)
-        while True:
-            jpeg, _ = await grab(cam, want_depth=False)
-            frame_n += 1
-            if frame_n % 3 == 1:
-                body = arm_target(pose, jpeg, "left"); ws = wrists(pose, jpeg)
-                body_cache = (body, ws["right"], ws["left"])
-            body, other, mine = body_cache
-            seen_wrist = bool(body and body[2] == "wrist")
-            near = (body[0], body[1]) if seen_wrist else sm
-            c = hand_centre(det, jpeg, near=near, want=None if seen_wrist else "watch", avoid=other, keep=mine)
-            if c is None:
-                seen, last = 0, None
-                continue
-            sm = c
-            if last and math.dist(c, last) < STEADY_MOVE:
-                seen += 1
-            else:
-                seen = 1
-            last = c
-            if seen >= STEADY_FRAMES:
+    await say("following your left hand; it lets go when your hand stays at the gripper for a second")
+    target = None
+    close_since = None
+    t_start = time.time()
+    while time.time() - t_start < FOLLOW_MAX_S:
+        r = await hand_in_world(machine, cam, det, intr)
+        if r is None:
+            await asyncio.sleep(0.05); continue
+        _, mm, _, (hx, hy, hz) = r
+        gp = (await motion.get_pose("gripper", "world")).pose
+        gap = math.dist((hx, hy, hz), (gp.x, gp.y, gp.z))
+        if gap < RELEASE_MM:
+            close_since = close_since or time.time()
+            if time.time() - close_since >= RELEASE_S:
+                await say(f"your hand has been at the gripper ({gap:.0f} mm) for {RELEASE_S:.0f} s: letting go")
+                if live:
+                    await gripper.open()
+                await asyncio.sleep(2)
                 break
-        await say(f"hand steady at ({c[0]:.2f},{c[1]:.2f}) of the picture")
-
-        # measure it in the arm's coordinates (needs the depth map; a few tries in case the depth is missing)
-        world = None
-        for _ in range(6):
-            r = await hand_in_world(machine, cam, det, intr)
-            if r:
-                _, mm, _, world = r
-                break
-        if not world:
-            await say("could not get the hand's distance; stopping"); return
-        hx, hy, hz = world
-        tx, ty, tz = target_for(hx, hy, hz)
-        await say(f"hand at x={hx:.0f} y={hy:.0f} z={hz:.0f} mm from the base ({mm} mm from the camera)")
-        await say(f"target {STANDOFF:.0f} mm short: x={tx:.0f} y={ty:.0f} z={tz:.0f}")
-
-        # 3. plan and go
-        if live:
-            # first choice: gripper pointing at Carl, along the line from the base to his hand, level;
-            # fallback: pointing down (a pick pose), which the planner can nearly always reach
-            flat = math.hypot(hx, hy)
-            facing = Pose(x=tx, y=ty, z=tz, o_x=hx / flat, o_y=hy / flat, o_z=0, theta=0)
-            down = Pose(x=tx, y=ty, z=tz, o_x=0, o_y=0, o_z=-1, theta=0)
-            ok = False
-            for label, pose_ in (("facing you", facing), ("pointing down", down)):
-                t0 = time.time()
-                try:
-                    ok = await motion.move(component_name="gripper", destination=PoseInFrame(reference_frame="world", pose=pose_))
-                except Exception as e:
-                    await say(f"planner, {label}: {str(e)[:90]}"); ok = False
-                await say(f"planner, {label}: ok={ok} in {time.time() - t0:.1f} s")
-                if ok:
-                    break
-            if not ok:
-                await say("planner found no path; back to greet"); await greet.set_position(2); return
         else:
-            await say("would ask the planner to go there now")
-
-        # 4. open, wait, 5. greet
-        if live:
-            await gripper.open()
-        await say(f"gripper open: take it ({TAKE_S:.0f} s)")
-        await asyncio.sleep(TAKE_S if live else 1)
-        if live:
-            await greet.set_position(2)
-        await say("back to greet; done")
+            close_since = None
+        tx, ty, tz = target_for(hx, hy, hz)
+        if target is None or math.dist(target, (tx, ty, tz)) > REPLAN_MM:
+            await say(f"hand at x={hx:.0f} y={hy:.0f} z={hz:.0f} ({mm} mm from the camera); going to x={tx:.0f} y={ty:.0f} z={tz:.0f}")
+            target = (tx, ty, tz)
+            if live:
+                flat = math.hypot(hx, hy)
+                facing = Pose(x=tx, y=ty, z=tz, o_x=hx / flat, o_y=hy / flat, o_z=0, theta=0)
+                try:
+                    ok = await motion.move(component_name="gripper", destination=PoseInFrame(reference_frame="world", pose=facing))
+                except Exception as e:
+                    ok = False; await say(f"planner: {str(e)[:80]}")
+                if not ok:
+                    await say("planner found no path to that; holding here")
+    else:
+        await say(f"no handover in {FOLLOW_MAX_S:.0f} s; keeping the bottle")
+    if live:
+        await greet.set_position(2)
+    await say("back to greet; done")
 
 
 async def main(live):
