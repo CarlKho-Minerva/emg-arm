@@ -50,10 +50,13 @@ async def plan_to(rig, x, y, z, label, o=(0.0, 0.0, -1.0), theta=0.0):
 
 async def pick(rig):
     """Side grasp: come in level at label height from the base's side, slide in, close gently, lift."""
-    await say("to home (the view of the table), gripper open")
+    await say("to greet first (if a bottle is still held from last time, it drops near Carl, not on the table)")
+    if rig.live:
+        await rig.greet.set_position(2); await asyncio.sleep(4)
+        await rig.gripper.open(); await asyncio.sleep(1)
+    await say("to home (the view of the table)")
     if rig.live:
         await rig.home.set_position(2); await asyncio.sleep(5)
-        await rig.gripper.open()
     bottles, _ = await find_bottles(rig.machine, rig.cam, rig.intr)
     bottles = [b for b in bottles if b[0] >= 0.5 and math.hypot(b[2][0], b[2][1]) <= MAX_REACH]
     if not bottles:
