@@ -210,7 +210,7 @@ async def push_forward(rig):
     except Exception as e:
         await say(f"forward move refused ({str(e)[:60]}); using the saved pose")
         return False
-FOLLOW_SIGN = -1.0        # the new greet (elbow at -190) turns the wrist camera round relative to Thursday's pose: both axes read backwards
+FOLLOW_SIGN = +1.0        # the original direction: 95 corrections closer vs 31 further in the 15:26 recording; the -1 flip of 15:27 was wrong
 EXTEND_SHORT_MM = 80.0    # stop this far short of the tape (the cube's centre sits ~60 mm ahead of the steered point)
 EXTEND_MIN, EXTEND_MAX = 60.0, 350.0
 
