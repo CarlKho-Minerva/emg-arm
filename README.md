@@ -5,35 +5,19 @@
 Form: https://forms.gle/T4Z5ah4M55uS7KDr8 (Google account needed; the email is recorded). Copy these in.
 
 **Team Roster**
-Carl Kho (solo team). Somach Systems, Inc.
+Carl Kho, solo. Somach Systems, Inc.
 
 **Project Title**
 Served With a Smile
 
 **Project Abstract**
-A face-controlled robot arm that fetches food and feeds Skully, a skeleton skull, using four facial gestures read
-from a laptop camera: left cheek fetches a cube (vision pick with a self-check), right cheek feeds Skully, a smile
-releases, two smiles stop. The robot feeds only after two looks a second apart agree the skull is still and in
-reach, so it knows when not to act. Every command is stored as an episode (gesture, what the camera saw, the
-safety checks, outcome, duration) in MongoDB, with a local mirror so nothing is lost when the network is down.
+A robot arm on a table waits for a face. Pull your left cheek up and it finds a cube, picks it, and checks its own grip by moving sideways and looking at where the cube was. Pull your right cheek up and it feeds Skully, a skeleton skull, but only after two looks a second apart agree that the skull has not moved and is within reach. The problem it works on is the ordinary act of bringing food to a mouth when the arms cannot do it, and the part most feeding robots skip: knowing when not to act. Every command becomes one record in MongoDB, with what the camera saw, which checks passed, and how it ended.
 
 **Who will use this solution? What is the expected business value?**
-People with little or no use of their arms who still control their face: cervical spinal cord injury, late-stage
-muscular dystrophy, some stroke and cerebral palsy cases. Eating is the daily task most often handed to another
-person; a feeding assistant that takes its orders from a half-smile gives the decision back to the person while
-the arm does the movement. The same gesture-event interface takes a muscle-signal (EMG) input next, for faces
-that barely move. Business value: a caregiver-hour per meal returned, in a form a clinic or home can run on a
-stock arm; the episode log is the audit trail and the training data for safer, learned feeding behaviour.
+The person this is for has little or no use of their arms and still has their face. The clearest case is a cervical spinal cord injury: the cord is damaged in the neck, so the arms and hands are mostly paralysed while the muscles of the face keep working. Late muscular dystrophy, some strokes and some cerebral palsy look the same from the robot's side. For all of them, eating is the daily task most often handed to another person. Here the person keeps the decision (a half-smile) and the arm does the movement. The next input is the electrical signal of the facial muscles read from the skin, for a face that barely moves; the arm side does not change. In plain business terms: one caregiver hour returned per meal, on a stock arm a clinic or a home can run, with a record of every attempt that doubles as the audit trail and the training data for a safer version.
 
 **What tech stack did you use?**
-UFactory xArm 6 with a two-finger gripper and Intel RealSense D435 on Viam (viam-server, motion planner with
-collision walls, saved poses, Python SDK). MediaPipe face blendshapes on the MacBook camera plus a 20-second
-personal logistic-regression classifier (numpy). OpenCV colour targets for the cube and the blue tape on the
-skull, depth map plus Viam frame transforms for 3D. MongoDB 8.0 (pymongo) as the robot's episodic memory: one
-document per command, 98 episodes already (Friday's live runs plus Thursday's picks, follower runs and handovers
-backfilled with their original timestamps); a local mongod at the table because the Atlas clusters did not
-resolve from the venue network, with a JSONL mirror written first so nothing is lost; a stdlib HTTP dashboard. Disclosure: the Cerelog EMG driver (silent-speech-cerelog) predates the
-event and is the next input, not driving the arm today.
+A UFactory xArm 6 with a two-finger gripper and a RealSense depth camera on the wrist, run through Viam (the motion planner with invisible walls, saved poses, the Python SDK). The face is read by the MacBook camera with MediaPipe, which turns a face into 52 numbers; a logistic regression trained on 20 seconds of Carl's own face turns those into five labels. The cube and the blue tape on Skully's nose are found by colour in OpenCV and placed in the room with the depth map and Viam's frame maths. MongoDB 8.0 through pymongo holds the episodes, 98 so far, including Thursday's picks, follower runs and handovers backfilled with their real timestamps; the database runs on the laptop because the Atlas clusters did not resolve from the venue network, and a JSONL file is written first so nothing is lost. The screen beside the arm is a plain Python HTTP page. Disclosure: the EMG board driver (silent-speech-cerelog) was written before the event and is not driving the arm today.
 
 ### The controls (final)
 
