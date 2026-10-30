@@ -264,8 +264,9 @@ same file; the arm does not change."
 2:40. "Why it matters in money. A home health aide in the United States costs a median of $34 an hour, $77,792 a year on
 a 44-hour week (Genworth and CareScout Cost of Care Survey, 2024). A meal with help is half an hour of that attention
 that cannot be shared or scheduled away: about $17 a meal, $51 a day, close to $19,000 a year for one person's meals.
-In words: the robot takes the mechanical half-hour and gives the carer back the floor, and gives the person the pace
-they choose. Solo entry; the EMG driver predates the event, everything on the arm, the cameras and the database was
+The aide themself earns a median of $35,800 a year (Bureau of Labor Statistics, May 2025); the rest is the agency and the
+scheduling, which is exactly the part a robot that waits for a smile removes. In words: the robot takes the mechanical
+half-hour and gives the carer back the floor, and gives the person the pace they choose. Solo entry; the EMG driver predates the event, everything on the arm, the cameras and the database was
 built here. Thank you."
 
 Questions they will ask: Does it feed a real person? Not yet; a person needs force limits, a breakaway utensil and
