@@ -313,6 +313,8 @@ nav button.on .dot.ok{background:var(--ok)}
 body.focus .card:not(.heard):not(.checks),body.focus .lead,body.focus .tiles,body.focus .paper,body.focus .cap,body.focus .runbox,body.focus .foot,body.focus h2{opacity:.22;transition:opacity .3s}
 body.focus .pic,body.focus .heard,body.focus .cc3 .card:not(.checks){opacity:1}
 body.focus .cc .pic{max-height:56vh}
+.cmdrow{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:0 8px}
+.cb{all:unset;cursor:pointer;text-align:center;font-size:12.5px;padding:7px 4px;border:1px solid var(--line);border-radius:6px;color:var(--fg);background:var(--bg)}.cb:hover{background:var(--card)}.cb:active{background:var(--ok);color:var(--bg)}
 .runbox{margin-top:auto;border-top:1px solid var(--line);padding-top:4px}
 .runrow{display:grid;grid-template-columns:10px 1fr auto auto;gap:6px;align-items:center;padding:3px 8px;font-size:13px}
 .rb{all:unset;cursor:pointer;font-size:11.5px;padding:3px 8px;border:1px solid var(--line);border-radius:6px;color:var(--fg)}.rb:hover{background:var(--card)}.rb.all{border-color:var(--ok);color:var(--ok)}
@@ -371,6 +373,12 @@ pre.log{margin:0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color
   <button data-tab="story"><span>Why</span><span class="dot"></span></button>
   <button id="focus" class="focusbtn"><span>Focus</span><span class="cap" style="font-size:11px">dim all but the live</span></button>
   <div class="runbox">
+    <div class="k" style="margin:10px 8px 6px">Manual, if the face fails</div>
+    <div class="cmdrow">
+      <button class="cb" data-g="L">Fetch</button><button class="cb" data-g="R">Feed</button><button class="cb" data-g="B">Let go</button>
+      <button class="cb" data-g="F">Follow</button><button class="cb" data-g="BB">Steer</button><button class="cb" data-g="BBB">Home</button>
+    </div>
+    <div class="cap" id="cmd_msg" style="margin:2px 8px 6px;font-size:11.5px"></div>
     <div class="k" style="margin:10px 8px 6px">Run</div>
     <div class="runrow"><span id="p_smile_dot" class="dot"></span><span>Face reader</span><button class="rb" data-run="smile" data-act="start">Start</button><button class="rb" data-run="smile" data-act="stop">Stop</button></div>
     <div class="runrow"><span id="p_serve_dot" class="dot"></span><span>Arm loop</span><button class="rb" data-run="serve" data-act="start">Start</button><button class="rb" data-run="serve" data-act="stop">Stop</button></div>
@@ -484,6 +492,7 @@ const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt
 document.getElementById('controls').innerHTML=CONTROLS.map(c=>c[1]==null?`<tr><td class="a" colspan="3" style="padding-top:8px;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em">${c[0]}</td></tr>`:`<tr><td class="g">${c[0]}</td><td class="f">${c[1]}</td><td class="a">${c[2]}</td></tr>`).join('');
 document.querySelectorAll('nav button[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('nav button[data-tab]').forEach(x=>x.classList.toggle('on',x===b));document.querySelectorAll('main section').forEach(s=>s.classList.toggle('on',s.id===b.dataset.tab));try{localStorage.setItem('tab',b.dataset.tab)}catch(e){}});
 try{const t=localStorage.getItem('tab');if(t)document.querySelector(`nav button[data-tab="${t}"]`)?.click();}catch(e){}
+document.querySelectorAll('.cb').forEach(b=>b.onclick=async()=>{try{const r=await (await fetch(`/cmd?g=${b.dataset.g}`,{method:'POST'})).json();$('cmd_msg').textContent=`sent ${r.sent||r.error} at ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;}catch(e){$('cmd_msg').textContent='no answer from the screen server';}});
 document.querySelectorAll('.rb').forEach(b=>b.onclick=async()=>{b.disabled=true;try{const r=await (await fetch(`/run?what=${b.dataset.run}&action=${b.dataset.act}`,{method:'POST'})).json();$('run_msg').textContent=Object.entries(r).map(([k,v])=>`${k}: ${v}`).join(' · ');}catch(e){$('run_msg').textContent='no answer from the screen server';}b.disabled=false;});
 $('focus').onclick=()=>{document.body.classList.toggle('focus');$('focus').classList.toggle('on');try{localStorage.setItem('focus',document.body.classList.contains('focus')?'1':'')}catch(e){}};
 try{if(localStorage.getItem('focus'))$('focus').click();}catch(e){}
@@ -585,6 +594,15 @@ class H(BaseHTTPRequestHandler):
         import urllib.parse
         path, _, qs = self.path.partition("?")
         q = urllib.parse.parse_qs(qs)
+        if path == "/cmd":
+            g = q.get("g", [""])[0]
+            if g in ("L", "R", "B", "BB", "BBB", "F", "E", "M"):
+                with open(FACE_LOG, "a") as f:
+                    f.write(f"{time.time():.3f} {g}\n")
+                self._send(json.dumps({"sent": g}))
+            else:
+                self._send(json.dumps({"error": "unknown command"}))
+            return
         if path == "/run":
             name, action = q.get("what", [""])[0], q.get("action", [""])[0]
             if name == "all":
