@@ -28,6 +28,7 @@ LABEL_Z = 100.0        # mm above the table: the blue label, the middle of the b
 PRE_MM = 160.0         # stop this far short of the bottle's axis before sliding in
 IN_MM = 35.0           # gripper frame this far short of the axis when closing (fingers reach past it)
 LIFT_MM = 100.0
+MAX_TRIES = 4
 HELD_POS = 60.0        # finger position above this after closing = something is between the fingers
 SOFT_SPEED = 800.0     # gripper closing speed while grasping (driver default 2000); gentler on the bottle
 
@@ -49,15 +50,17 @@ async def plan_to(rig, x, y, z, label, o=(0.0, 0.0, -1.0), theta=0.0):
     return ok
 
 
-async def pick(rig):
+async def pick_once(rig, attempt):
     """Side grasp: come in level at label height from the base's side, slide in, close gently, lift."""
-    await say("to greet first (if a bottle is still held from last time, it drops near Carl, not on the table)")
-    if rig.live:
-        await rig.greet.set_position(2); await asyncio.sleep(4)
-        await rig.gripper.open(); await asyncio.sleep(1)
-    await say("to home (the view of the table)")
+    if attempt == 1:
+        await say("to greet first (if a bottle is still held from last time, it drops near Carl, not on the table)")
+        if rig.live:
+            await rig.greet.set_position(2); await asyncio.sleep(4)
+            await rig.gripper.open(); await asyncio.sleep(1)
+    await say(f"attempt {attempt}: to home (the view of the table)")
     if rig.live:
         await rig.home.set_position(2); await asyncio.sleep(5)
+        await rig.gripper.open()
     bottles, _ = await find_bottles(rig.machine, rig.cam, rig.intr)
     bottles = [b for b in bottles if b[0] >= 0.5 and math.hypot(b[2][0], b[2][1]) <= MAX_REACH]
     if not bottles:
@@ -97,15 +100,33 @@ async def pick(rig):
     await say(f"gripper closed: driver says held={held}, finger position {posn:.0f} (0 = fully closed, 850 = open)")
     if posn > HELD_POS:
         held = True
+    if not held:
+        await say("nothing between the fingers; opening and trying again")
+        await rig.gripper.open()
+        return False
     try:
         await rig.gripper.do_command({"set_gripper_speed": 2000.0})
     except Exception:
         pass
     if not await plan_to(rig, grasp[0], grasp[1], grasp[2] + LIFT_MM, "lift", o=face, theta=theta):
         return False
-    await say("to greet, to find your hand")
+    await say("bottle confirmed in the gripper; to greet, to find your hand")
     await rig.greet.set_position(2); await asyncio.sleep(5)
-    return held
+    return True
+
+
+async def pick(rig):
+    """Try until the fingers confirm a bottle, up to MAX_TRIES."""
+    for attempt in range(1, MAX_TRIES + 1):
+        ok = await pick_once(rig, attempt)
+        if ok:
+            return True
+        if not rig.live:
+            return False
+        await say("retrying in 3 s")
+        await asyncio.sleep(3)
+    await say(f"no bottle after {MAX_TRIES} attempts")
+    return False
 
 
 async def main(live):
