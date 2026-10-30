@@ -10,8 +10,9 @@ reached; what could not be pushed is marked synced=false and retried on the next
     .venv/bin/python episodes.py push         # push everything unsynced to MongoDB (needs a reachable URI)
 
 The MongoDB URI is read from SERVE_MONGODB_URI, then SANDBOX_MONGODB_URI, in ~/.config/carl-life-os/.env.
-At the venue on 30 Oct the network blocked SRV lookups and port 27017, so Atlas was unreachable from the
-table; the file kept everything, and the screen says "MongoDB: unreachable, N queued" rather than hiding it.
+At the venue on 30 Oct the network blocked SRV lookups (mongodb+srv:// URIs), so SERVE_MONGODB_URI is the
+cluster written by host name (mongodb://host1,host2,host3/?tls=true&replicaSet=...), resolved once from the
+home Mac; port 27017 is open. A local mongod (run_mongo.command) is the fallback, and the file keeps everything.
 """
 import json
 import os
@@ -99,14 +100,15 @@ def mongo(timeout_ms=4000):
 _lock = threading.Lock()
 
 
-def push():
-    """Push every unsynced episode. Rewrites the file with synced=true for the ones that went through."""
+def push(everything=False):
+    """Push every unsynced episode (or all of them, when the target changed, e.g. local mongod to Atlas).
+    Rewrites the file with synced=true for the ones that went through."""
     with _lock:
         c = mongo()
         if c is None:
             return 0
         rows = load()
-        todo = [r for r in rows if not r.get("synced")]
+        todo = [r for r in rows if everything or not r.get("synced")]
         if not todo:
             return 0
         try:
@@ -224,6 +226,6 @@ if __name__ == "__main__":
     if cmd == "backfill":
         print("backfilled", backfill(), "episodes")
     elif cmd == "push":
-        print("pushed", push(), "; status", mongo_status())
+        print("pushed", push(everything="--all" in sys.argv), "; status", mongo_status())
     else:
         print(json.dumps(stats(), indent=1))
