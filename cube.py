@@ -126,12 +126,17 @@ async def find_cubes(machine, cam, intr, colours=None):
             bw, bh = box[2], box[3]
             if not (0.55 < bw / max(bh, 1) < 1.8) or not (HOME_AREA[0] <= area <= HOME_AREA[1]):
                 continue                                  # not a cube from here: the orange stand, the chair, tape
-            mm = depth_mm(depth, cu, cv_, w_img, h_img)
-            if not mm:
-                continue
-            top = await to_world(machine, intr, cu, cv_, mm)
-            cxo, cyo = cam_offset()
-            top = (top[0] + cxo, top[1] + cyo, top[2])
+            mm = depth_mm(depth, cu, cv_, w_img, h_img) if depth else 0
+            if mm:
+                top = await to_world(machine, intr, cu, cv_, mm)
+                cxo, cyo = cam_offset()
+                top = (top[0] + cxo, top[1] + cyo, top[2])
+            else:
+                # no depth (stream down, or a hole in the map): the ray through the pixel meets the plane of
+                # the cube tops. Same maths the close looks use; from home it is a longer ray, so a few mm worse.
+                top = await pixel_to_plane(machine, intr, cu, cv_, CUBE_MM)
+                if top is None:
+                    continue
             # on the table: z near 0 (the depth frame reads about 4 cm low) and not out in the room (blue chairs, tape)
             if -80 < top[2] < 120 and math.hypot(top[0], top[1]) < 1300:
                 cands.append((math.hypot(top[0], top[1]), top, area, box))

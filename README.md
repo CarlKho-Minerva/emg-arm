@@ -1,5 +1,52 @@
 # emg-arm
 
+## Fri 30 Oct, 14:15: submission form answers (form closes 3:00 PM) and the final controls
+
+Form: https://forms.gle/T4Z5ah4M55uS7KDr8 (Google account needed; the email is recorded). Copy these in.
+
+**Team Roster**
+Carl Kho (solo team). Somach Systems, Inc.
+
+**Project Title**
+Served With a Smile
+
+**Project Abstract**
+A face-controlled robot arm that fetches food and feeds Alex, a skeleton skull, using four facial gestures read
+from a laptop camera: left cheek fetches a cube (vision pick with a self-check), right cheek feeds Alex, a smile
+releases, two smiles stop. The robot feeds only after two looks a second apart agree the skull is still and in
+reach, so it knows when not to act. Every command is stored as an episode (gesture, what the camera saw, the
+safety checks, outcome, duration) in MongoDB, with a local mirror so nothing is lost when the network is down.
+
+**Who will use this solution? What is the expected business value?**
+People with little or no use of their arms who still control their face: cervical spinal cord injury, late-stage
+muscular dystrophy, some stroke and cerebral palsy cases. Eating is the daily task most often handed to another
+person; a feeding assistant that takes its orders from a half-smile gives the decision back to the person while
+the arm does the movement. The same gesture-event interface takes a muscle-signal (EMG) input next, for faces
+that barely move. Business value: a caregiver-hour per meal returned, in a form a clinic or home can run on a
+stock arm; the episode log is the audit trail and the training data for safer, learned feeding behaviour.
+
+**What tech stack did you use?**
+UFactory xArm 6 with a two-finger gripper and Intel RealSense D435 on Viam (viam-server, motion planner with
+collision walls, saved poses, Python SDK). MediaPipe face blendshapes on the MacBook camera plus a 20-second
+personal logistic-regression classifier (numpy). OpenCV colour targets for the cube and the blue tape on the
+skull, depth map plus Viam frame transforms for 3D. MongoDB (pymongo) for episodes, Atlas when reachable, JSONL
+mirror always; a stdlib HTTP dashboard. Disclosure: the Cerelog EMG driver (silent-speech-cerelog) predates the
+event and is the next input, not driving the arm today.
+
+### The controls (final)
+
+| face | the robot |
+|---|---|
+| left cheek up (L) | fetch: home, find the green cube, pick, prove the grip, back to greet |
+| right cheek up (R) | feed Alex: look twice; if he held still (under 20 mm) and is 530 to 800 mm from the base, cube into his mouth, let go, back out, greet; else refuse and keep the cube |
+| full smile (B) | let go |
+| two smiles (BB) | home, gripper open (stop) |
+
+Alex faces the robot, between two phones, blue cube off the table (same hue as the tape). Measure two numbers in
+`skull.py` with a ruler before the first live feed: `TAPE_Z` (table to the tape's centre, default 125) and
+`MOUTH_BELOW` (tape centre to the open mouth's centre, default 60). Then `skull.py --live --probe` (pre-feed pose
+only), then `skull.py --live` once, then `serve.py --live`. Run of show, 3-minute script: DEMO.md.
+
 Viam x MongoDB Robot Hackathon, SF, 29 to 30 Oct 2026. Solo entry by Carl Kho (Somach Systems).
 
 A UFactory xArm 6 that finds Carl by camera, follows his arm, and (next) takes orders from his

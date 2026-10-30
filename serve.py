@@ -1,38 +1,37 @@
 """Served With a Smile: the arm driven by smile groups from smile.py (data/face.log).
 
     .venv/bin/python serve.py --live          # smile.py must be running in Terminal (run_smile.command)
+    .venv/bin/python serve.py                 # dry run: hears the groups, moves nothing, logs what it would do
 
-Fetch mode (start, at greet):
-  L     grab the food: home, find the green cube, pick, prove the grip, back to greet
-  R     hand it over: follow the left hand, palm under the gripper, release (verified path)
-  M     (open mouth) feed me: follow the face, hold the cube in front of the mouth 2 s, take it back
-  B     let go now (gripper opens wherever it is)
-  BB    Nudge mode
-  BBB   home, gripper open, Fetch mode
-Nudge mode (30 mm steps):
-  L / R one step along the current axis (left/right, toward/away, up/down)
-  BB    next axis
-  B     grab if empty, let go if holding
-  BBB   greet, Fetch mode
-Every group is logged with what it did, to data/serve.log.
+The controls (final, Fri 30 Oct 14:00; the crane/nudge mode is gone):
+  L     half-smile LEFT:  fetch the food: home, find the green cube, pick it, prove the grip, back to greet
+  R     half-smile RIGHT: feed Alex: home, find the blue tape on his nose twice a second apart, and only if he
+        held still and is in reach, bring the cube level into his open mouth, let go, back out, greet.
+        If he moved, the robot says so, refuses, and comes back to greet still holding the cube.
+  B     full smile: let go (the gripper opens where it is)
+  BB    two smiles: home, gripper open (the universal recovery)
+  M     open mouth: feed ME (follow my face, hold the cube at my mouth, take it back). Off unless --face-feed:
+        it was never verified live and it moves toward a person's face.
+Every command is an episode (episodes.py): data/serve_episodes.jsonl at once, MongoDB when reachable.
+Every line the arm does is also in data/serve.log, which the screen (dash.py) shows as it is written.
+While idle the wrist camera's picture is written to data/live.jpg four times a second for the screen.
 """
 import argparse
 import asyncio
 import os
 import time
 
-from viam.proto.common import Pose
-from viam.components.switch import Switch
-
-from handme import Rig, feed, handover, say
-from pick import pick, settled_fingers, HELD_MIN, HELD_MAX
+from camgrab import grab
+from episodes import Episode
+from handme import Rig, feed, say
+from pick import HELD_MAX, HELD_MIN, pick, settled_fingers
+from skull import feed_alex
 from viamarm import connect
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FACE_LOG = os.path.join(HERE, "data", "face.log")
 SERVE_LOG = os.path.join(HERE, "data", "serve.log")
-STEP_MM = 30.0
-AXES = (("left/right", (0, 1, 0)), ("toward/away", (1, 0, 0)), ("up/down", (0, 0, 1)))
+LIVE_JPG = os.path.join(HERE, "data", "live.jpg")
 
 
 def new_groups(after):
@@ -57,72 +56,84 @@ def log(group, action):
         f.write(f"{time.time():.3f} {group} {action}\n")
 
 
-async def nudge(rig, axis, sign):
-    name, (ax, ay, az) = AXES[axis]
-    p = (await rig.motion.get_pose("gripper", "world")).pose
-    tx, ty, tz = p.x + sign * STEP_MM * ax, p.y + sign * STEP_MM * ay, max(p.z + sign * STEP_MM * az, 80.0)
-    await say(f"nudge {name} {'+' if sign > 0 else '-'}{STEP_MM:.0f} mm")
-    if rig.live:
-        try:
-            await asyncio.wait_for(rig.arm.move_to_position(Pose(x=tx, y=ty, z=tz, o_x=p.o_x, o_y=p.o_y, o_z=p.o_z, theta=p.theta)), 15)
-        except Exception as e:
-            await say(f"nudge refused: {str(e)[:80]}")
+async def holding(rig):
+    """Is there a cube between the fingers? Settled finger position inside the cube band."""
+    if not rig.live:
+        return True
+    posn = await settled_fingers(rig)
+    return HELD_MIN < posn < HELD_MAX
 
 
-async def main(live, cube):
+async def publish_view(rig):
+    try:
+        jpeg, _ = await asyncio.wait_for(grab(rig.cam, want_depth=False), 2)
+        tmp = LIVE_JPG + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write(jpeg)
+        os.replace(tmp, LIVE_JPG)
+    except Exception:
+        pass
+
+
+async def main(live, cube, face_feed):
     async with await connect() as machine:
         rig = await Rig(machine, live).setup()
         rig.last_grasp = None
-        home = Switch.from_robot(machine, "home")
-        mode, axis = "fetch", 0
         since = time.time()
-        await say(f"Served With a Smile. Mode FETCH. Smile left to fetch the {cube} cube.")
+        last_view = 0.0
+        await say(f"Served With a Smile. LEFT cheek: fetch the {cube} cube. RIGHT cheek: feed Alex. Smile: let go. Two smiles: home.")
         while True:
             groups = new_groups(since)
             if not groups:
-                await asyncio.sleep(0.1)
+                if time.time() - last_view > 0.25:
+                    await publish_view(rig); last_view = time.time()
+                await asyncio.sleep(0.05)
                 continue
             since = groups[-1][0]
             for _, g in groups:
-                await say(f"heard {g} in {mode.upper()}")
-                if g == "BBB":
-                    log(g, "home"); mode = "fetch"
+                await say(f"heard {g}")
+                if g == "L":
+                    ep = Episode.start("fetch", g, cube=cube)
+                    ok = await pick(rig, cube)
+                    log(g, "fetch: picked and proved" if ok else "fetch: missed")
+                    ep.end(ok, "picked and proved" if ok else "missed", grasp=rig.last_grasp)
+                    await say("fetched; at greet" if ok else "could not fetch")
+                elif g == "R":
+                    ep = Episode.start("feed_alex", g)
+                    if not await holding(rig):
+                        log(g, "feed Alex refused: nothing in the gripper (smile left first)")
+                        ep.end(False, "nothing in the gripper")
+                        await say("nothing in the gripper to feed him with; smile left first")
+                        continue
+                    ok, why = await feed_alex(rig, say, episode=ep)
+                    log(g, f"feed Alex: {why}")
+                    ep.end(ok, why)
+                elif g == "M":
+                    ep = Episode.start("feed_face", g)
+                    if not face_feed:
+                        log(g, "feed me: off (start with --face-feed to allow it)")
+                        ep.end(False, "disabled")
+                        await say("feeding a person is off in this run")
+                        continue
+                    log(g, "feed me")
+                    await feed(rig, put_back=rig.last_grasp)
+                    ep.end(None, "ran; outcome not measured")
+                elif g == "B":
+                    ep = Episode.start("let_go", g)
+                    log(g, "let go")
                     if live:
-                        await rig.gripper.open(); await home.set_position(2)
-                    await say("home; mode FETCH")
-                elif mode == "fetch":
-                    if g == "L":
-                        ok = await pick(rig, cube)
-                        log(g, "fetch: picked and proved" if ok else "fetch: missed")
-                        await say("fetched; at greet" if ok else "could not fetch")
-                    elif g == "R":
-                        log(g, "hand it over (palm)")
-                        await handover(rig)
-                    elif g == "M":
-                        log(g, "feed")
-                        await feed(rig, put_back=rig.last_grasp)
-                    elif g == "B":
-                        log(g, "let go")
-                        if live:
-                            await rig.gripper.open()
-                    elif g == "BB":
-                        log(g, "nudge mode"); mode = "nudge"; axis = 0
-                        await say(f"mode NUDGE, axis {AXES[axis][0]}")
-                elif mode == "nudge":
-                    if g in ("L", "R"):
-                        log(g, f"nudge {AXES[axis][0]}")
-                        await nudge(rig, axis, -1 if g == "L" else 1)
-                    elif g == "BB":
-                        axis = (axis + 1) % len(AXES); log(g, f"axis {AXES[axis][0]}")
-                        await say(f"axis {AXES[axis][0]}")
-                    elif g == "B":
-                        if live:
-                            posn = await settled_fingers(rig)
-                            if HELD_MIN < posn < HELD_MAX:
-                                await rig.gripper.open(); log(g, "let go")
-                            else:
-                                await rig.gripper.grab(); log(g, "grab")
-                        await say("gripper toggled")
+                        await rig.gripper.open()
+                    ep.end(True, "opened")
+                elif g == "BB" or g == "BBB":
+                    ep = Episode.start("home", g)
+                    log(g, "home, gripper open")
+                    if live:
+                        await rig.gripper.open(); await rig.home.set_position(2)
+                    ep.end(True, "home")
+                    await say("home")
+                else:
+                    log(g, "ignored")
+                    await say(f"{g}: nothing bound to that")
             since = time.time()
 
 
@@ -130,5 +141,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--live", action="store_true")
     ap.add_argument("--cube", default="green")
+    ap.add_argument("--face-feed", action="store_true", help="let the open mouth (M) run the feed-a-person path")
     a = ap.parse_args()
-    asyncio.run(main(a.live, a.cube))
+    asyncio.run(main(a.live, a.cube, a.face_feed))

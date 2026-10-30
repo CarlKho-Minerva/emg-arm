@@ -35,18 +35,15 @@ FACE_WORDS = {"L": "smile left", "R": "smile right", "B": "full smile", "M": "mo
 
 # the controls as serve.py acts on them (DEMO.md, Face controls, plus the open-mouth feed of 19:53)
 CONTROLS = [
-    ("Fetch mode (the start state, at greet)", None, None),
-    ("L", "smile left", "fetch the cube, prove the grip, back to greet"),
-    ("R", "smile right", "hand it over, into your palm"),
-    ("M", "open mouth", "feed me: cube held at the mouth 2 s, then put back"),
+    ("Face controls (one state, no modes)", None, None),
+    ("L", "left cheek up", "fetch: home, find the green cube, pick, prove the grip, greet"),
+    ("R", "right cheek up", "feed Alex: look twice; if he held still and is in reach, cube into the mouth, let go, back"),
     ("B", "full smile", "let go"),
-    ("BB", "smile twice", "nudge mode"),
-    ("BBB", "smile three times", "home, gripper open"),
-    ("Nudge mode (30 mm a step)", None, None),
-    ("L / R", "smile left / right", "one step along the current axis"),
-    ("BB", "smile twice", "next axis: left/right, toward/away, up/down"),
-    ("B", "full smile", "grab if empty, let go if holding"),
-    ("BBB", "smile three times", "back to fetch mode, at greet"),
+    ("BB", "smile twice", "home, gripper open (stop)"),
+    ("Why the robot can refuse", None, None),
+    ("-", "Alex moved", "more than 20 mm between two looks a second apart: refused, cube kept"),
+    ("-", "out of reach", "nearer than 530 mm or further than 800 mm from the base: refused"),
+    ("-", "empty hand", "feed asked with nothing in the gripper: refused"),
 ]
 
 robot = {"jpeg": None, "t": 0.0, "source": "none", "error": ""}
@@ -151,6 +148,14 @@ def read_json(path):
         return None
 
 
+def episode_stats():
+    try:
+        import episodes
+        return episodes.stats()
+    except Exception as e:
+        return {"error": str(e)[:80]}
+
+
 def state():
     rows = serve_lines()
     face = read_json(FACE_STATUS) or {}
@@ -176,6 +181,8 @@ def state():
         "last_heard": last_heard,
         "calib": {k: calib.get(k) for k in ("up_left", "up_right", "down", "jaw_open", "at")},
         "robot": {"source": robot_picture()[2], "age": robot_picture()[3], "url": ROBOT_URL, "error": robot["error"]},
+        "episodes": episode_stats(),
+        "alex": read_json(os.path.join(DATA, "alex.json")),
     }
 
 
@@ -240,7 +247,7 @@ h2{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0}
 </style></head><body>
 <header>
   <h1>Served With a Smile</h1>
-  <div class="line">An arm that feeds you. <b>Smile left:</b> fetch. <b>Smile right:</b> hand it over. <b>Open your mouth:</b> feed me. <b>Full smile:</b> let go.</div>
+  <div class="line">Meet Alex. He's dead hungry. <b>Left cheek:</b> fetch. <b>Right cheek:</b> feed Alex. <b>Smile:</b> let go. <b>Two smiles:</b> home.</div>
   <div class="right" id="clock"></div>
 </header>
 <main>
@@ -250,7 +257,8 @@ h2{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0}
   <div class="card log">
     <div class="k"><span>What it did, as it wrote it (data/serve.log)</span><span class="tag" id="log_tag"></span></div>
     <div class="rows"><table><tbody id="rows"></tbody></table><div class="empty" id="log_empty" style="display:none">nothing yet; serve.py writes a line for every face group it acts on</div></div>
-    <div class="count" id="count">picks confirmed <b>0</b>, handovers <b>0</b></div>
+    <div class="count" id="count">episodes <b>0</b></div>
+    <div class="count" id="mongo" style="border-top:0;padding-top:2px;font-size:13px"></div>
   </div>
 </section>
 <section>
@@ -299,7 +307,11 @@ async function tick(){
   $('rows').innerHTML=rows.map(r=>`<tr><td class="t">${r.time}</td><td class="f">${esc(r.face)}</td><td class="a">${esc(r.action)}</td></tr>`).join('');
   $('log_empty').style.display=rows.length?'none':'';
   $('log_tag').textContent=rows.length?(s.counts.lines>rows.length?`last ${rows.length} of ${s.counts.lines}`:`${rows.length} lines`):'';
-  $('count').innerHTML=`picks confirmed <b>${s.counts.picks}</b>, handovers <b>${s.counts.handovers}</b>`;
+  const ep=s.episodes||{}, bk=ep.by_kind||{};
+  const k=n=>bk[n]||{attempts:0,ok:0,refused:0};
+  $('count').innerHTML=`episodes <b>${ep.total||0}</b> (${ep.live||0} today, ${ep.backfill||0} backfilled) &middot; fetch <b>${k('fetch').ok}/${k('fetch').attempts}</b> &middot; feed Alex <b>${k('feed_alex').ok}/${k('feed_alex').attempts}</b>, refused <b>${k('feed_alex').refused}</b>`;
+  const mg=ep.mongo||{}; const ax=s.alex||{};
+  $('mongo').innerHTML=`MongoDB ${mg.db||''}.${mg.collection||''}: `+(mg.ok?`<span style="color:var(--ok)">connected, ${mg.synced} synced</span>`:`<span style="color:var(--warn)">unreachable from this network, ${mg.queued} queued on disk</span>`)+(ax.t?` &middot; Alex: ${ax.seen?(ax.stable?'<span style="color:var(--ok)">still</span>':'<span style="color:var(--warn)">moving '+(ax.moved_mm||0).toFixed(0)+' mm</span>'):'not seen'} (${fmtAge(Date.now()/1000-ax.t)} ago)`:'');
   const rb=s.robot||{};
   $('robot_tag').textContent=rb.source==='box'?'live from the box':rb.source==='file'?`last picture on disk, ${fmtAge(rb.age)} old`:'robot offline';
   $('robot_tag').className='tag '+(rb.source==='box'?'ok':'warn');

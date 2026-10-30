@@ -56,6 +56,7 @@ DROP_ABOVE = 110.0    # mm above the palm to descend to, blind, before opening
 DWELL_S = 2.0         # hand still, arm at the standoff, for this long: let go
 SAFE_X = 850.0        # mm: direct moves never go further forward than this (the laptop wall is at 950)
 FOLLOW_MAX_S = 60.0   # give up following after this
+HAND_MM_K = 37.5      # hand distance (mm) x hand size (fraction of the picture width): a palm 25 cm away read 0.15 (29 Oct)
 
 
 def target_for(hx, hy, hz):
@@ -225,7 +226,10 @@ async def handover(rig):
                 if pending and not pending.done():
                     pending.cancel()
                 _, depth = await grab(cam, want_depth=True)
-                mm = depth_at(depth, *sm)
+                mm = depth_at(depth, *sm) if depth else None
+                if not mm and F.LAST_SIZE > 0.02:
+                    mm = int(HAND_MM_K / F.LAST_SIZE)          # depth stream down: distance from the hand's size in the picture
+                    await say(f"   no depth; ranging by hand size {F.LAST_SIZE:.2f} -> about {mm} mm")
                 if not mm or mm < 280:
                     await say(f"hand centred but too near to range ({mm} mm); move it back a little"); still_since = None; continue
                 u, v = sm[0] * intr.width_px, sm[1] * intr.height_px
@@ -337,7 +341,9 @@ async def hold_for_face(rig, put_back=None):
                 if pending and not pending.done():
                     pending.cancel()
                 _, depth = await grab(cam, want_depth=True)
-                mm = depth_at(depth, *sm)
+                mm = depth_at(depth, *sm) if depth else None
+                if depth is None:
+                    await say("no depth stream: cannot range a face, so no move toward it; stopping here"); break
                 if not mm or mm < 280:
                     await say(f"face centred but too near to range ({mm} mm)"); still_since = None; continue
                 u, v = sm[0] * intr.width_px, sm[1] * intr.height_px
@@ -441,7 +447,9 @@ async def feed(rig, put_back=None):
                 if pending and not pending.done():
                     pending.cancel()
                 _, depth = await grab(cam, want_depth=True)
-                mm = depth_at(depth, *sm)
+                mm = depth_at(depth, *sm) if depth else None
+                if depth is None:
+                    await say("no depth stream: cannot range a face, so no move toward it; stopping here"); break
                 if not mm or mm < 280:
                     await say(f"face centred but too near to range ({mm} mm)"); still_since = None; continue
                 u, v = sm[0] * intr.width_px, sm[1] * intr.height_px

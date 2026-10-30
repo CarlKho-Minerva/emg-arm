@@ -153,16 +153,12 @@ INSTRUCTIONS = (
     ("SERVED WITH A SMILE", None),
     ("", None),
     ("LEFT cheek up", "fetch the cube"),
-    ("RIGHT cheek up", "hand it over"),
-    ("OPEN your mouth", "feed me"),
+    ("RIGHT cheek up", "feed Alex"),
     ("SMILE once", "let go"),
-    ("SMILE twice", "nudge mode"),
-    ("SMILE 3 times", "home"),
+    ("SMILE twice", "home (stop)"),
     ("", None),
-    ("in nudge mode:", None),
-    ("LEFT / RIGHT", "move a step"),
-    ("SMILE twice", "next axis"),
-    ("SMILE once", "grab / release"),
+    ("Alex eats only if he", None),
+    ("holds still and is in reach", None),
 )
 
 

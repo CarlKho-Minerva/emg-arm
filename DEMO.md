@@ -200,3 +200,76 @@ in the pitch: "the same controls from muscle signals, for a face that barely mov
    left, your face + controls on the right). Put the Mac beside the arm facing the judges.
 4. 10:30 Three runs hands-behind-the-back, counted. Rehearse the 60 s script over one.
 5. 12:00 Decide: face demo, or palm demo if the feed misbehaves.
+
+
+## Friday 30 Oct, 14:05: the final controls and the run of show
+
+Decided at the table: no modes, no crane. Alex is the pewter skull with blue painter's tape on his nose.
+He stands on the table between two phones, facing the robot. Blue cube off the table (same hue as the tape).
+
+| face | the robot |
+|---|---|
+| left cheek up (L) | fetch: home, find the green cube, pick it, prove the grip (shift test), back to greet |
+| right cheek up (R) | feed Alex: home, look for the tape twice a second apart; if he held still (under 20 mm) and is 530 to 800 mm from the base, come in level to his mouth, let go, back out, greet. Else refuse, say why, keep the cube |
+| full smile (B) | let go where it is |
+| two smiles (BB) | home, gripper open: the stop |
+
+Open mouth (M) does nothing unless `serve.py --live --face-feed`: feeding a person's face was never verified
+live. Three smiles do nothing.
+
+The three guards, said out loud at the demo: he has to be seen, he has to hold still, he has to be in reach.
+One deliberate refusal in the demo: smile right while moving Alex, the robot says "REFUSED: Alex moved", goes
+back to greet with the cube. Then put him down, smile right again, he eats.
+
+### Measure before the first live feed (two numbers, a ruler, one minute)
+
+- `TAPE_Z` in `skull.py`: height of the tape's centre above the table with Alex standing. Default 150. Used
+  only when the depth map has no reading on the tape; the live finder uses depth first.
+- `MOUTH_BELOW`: tape centre to the centre of the open mouth. Default 70.
+- Then `.venv/bin/python skull.py --live --probe` with the cube in the gripper: it goes to the pre-feed pose
+  150 mm in front of the mouth and waits 5 s. Check the height by eye. Then `skull.py --live` once without
+  the smile. Only then `serve.py --live`.
+
+### Start order
+
+1. `open run_smile.command` (calibrate first with `open run_calibrate.command` if the lighting changed).
+2. `.venv/bin/python serve.py --live --cube green`
+3. `open run_dash.command`, http://localhost:8790, Mac facing the judges.
+
+### Three minutes, spoken
+
+0:00 "Meet Alex. He's dead hungry." (pause) "Jokes aside: for someone with a cervical spinal cord injury, the
+spinal cord is damaged in the neck, so the arms and hands can be mostly paralysed while the face still moves.
+Bringing food to your own mouth needs another person. This asks: what if a small facial movement were enough?"
+
+0:25 "This is Served With a Smile. A UFactory xArm 6 on Viam, the MacBook camera reading my face, a tiny
+classifier I trained on my own face in 20 seconds. Four gestures, no hands, no voice." (left cheek) "That is
+fetch: find the cube, pick it, prove it has it by moving sideways and looking."
+
+1:00 "Now Alex is hungry. But the robot does not feed him because I smiled. It looks for the tape on his nose
+twice, a second apart. If he moved, it refuses." (move Alex, right cheek) "Refused; he was moving. He keeps
+the cube." (put Alex down) (right cheek) "Still, in reach: it comes in level and lets go. Bon appetit, Alex."
+
+2:00 "Every command is an episode: the gesture, what it saw, the three checks, the outcome, how long. On disk
+at once; MongoDB Atlas when the network lets it through" (point at the screen: synced or queued, honestly).
+"Modular: the face reader writes events to a file; the arm loop reads events. Swap the face reader for the
+EMG board (hold it up) and nothing on the arm side changes. That is the next step: the same four commands
+from the muscle signal, for a face that barely moves."
+
+2:40 "Solo entry. The EMG driver predates the event; everything touching the arm, the camera and the log was
+written here. Thank you."
+
+### Submission form (https://forms.gle/T4Z5ah4M55uS7KDr8, by 3:00 PM), suggested answers
+
+- Project name: Served With a Smile
+- Team: Carl Kho (solo), Somach Systems
+- One line: a face-controlled robot arm that fetches food and feeds Alex the skeleton, and knows when not to.
+- What it does: half-smile left fetches a cube (vision pick with a self-check); half-smile right feeds Alex
+  only after two looks a second apart agree he is still and in reach; a full smile releases; two smiles stop.
+  Every command is logged as an episode (gesture, observation, checks, outcome, duration) to MongoDB.
+- Built with: UFactory xArm 6 via Viam (arm, gripper, RealSense camera, motion planner with walls), Viam
+  Python SDK, MediaPipe face blendshapes plus a 20-second personal classifier, OpenCV colour targets, MongoDB
+  (pymongo; Atlas when reachable, local JSONL mirror always).
+- Repo: https://github.com/CarlKho-Minerva/emg-arm
+- Disclosure: the Cerelog EMG driver (silent-speech-cerelog) predates the event and is the next input; it is
+  not driving the arm today.
