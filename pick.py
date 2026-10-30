@@ -34,6 +34,8 @@ LIFT_MM = 100.0
 MAX_TRIES = 4
 CUBE_REACH = 750.0     # mm from the base for a straight-down grasp
 CUBE_ABOVE = 160.0     # mm: hover height of the steered point over the cube
+CUBE_LOOKS = (240.0, 160.0)   # hover heights for the close looks (coarse to fine), before the descent
+CUBE_MAX_SHIFT = 80.0  # mm: a close look that moves the estimate more than this is a different blob; ignore it
 CUBE_STAGES = (90.0, 70.0, 52.0)   # steered-point heights to close at, in order; the fingertips hang some
                                    # unknown distance below the steered point, so go down in steps and stop at the first hold
 HELD_POS = 60.0        # finger position above this after closing = something is between the fingers
@@ -155,7 +157,24 @@ async def pick_cube_once(rig, colour, attempt):
     if not rig.live:
         await say(f"would go above it at z={CUBE_ABOVE:.0f}, then down through {CUBE_STAGES}, closing at each until held")
         return True
-    if not await plan_to(rig, cx, cy, CUBE_ABOVE, "above the cube"):
+    # coarse to fine: hover high, look again and re-centre; hover lower, look again; then descend
+    from cube import find_cube_close
+    for hover in CUBE_LOOKS:
+        if not await plan_to(rig, cx, cy, hover, f"over the cube at z={hover:.0f}"):
+            return False
+        await asyncio.sleep(0.4)
+        r = await find_cube_close(rig.machine, rig.cam, rig.intr, colour)
+        if r is None or r[0] is None:
+            await say(f"   close look at z={hover:.0f}: cube not seen from here; keeping the last estimate")
+            continue
+        (nx, ny, _), area = r
+        shift = math.hypot(nx - cx, ny - cy)
+        await say(f"   close look at z={hover:.0f}: cube at x={nx:.0f} y={ny:.0f} (moved the estimate {shift:.0f} mm, blob {area} px)")
+        if shift < CUBE_MAX_SHIFT:
+            cx, cy = nx, ny
+        else:
+            await say(f"   that is a jump of more than {CUBE_MAX_SHIFT:.0f} mm; not trusting it")
+    if not await plan_to(rig, cx, cy, CUBE_ABOVE, "above the cube, centred"):
         return False
     try:
         await rig.gripper.do_command({"set_gripper_speed": SOFT_SPEED})

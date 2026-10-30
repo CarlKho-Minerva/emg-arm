@@ -70,6 +70,33 @@ def blobs(bgr, colour):
     return out
 
 
+async def pixel_to_plane(machine, intr, u, v, z_plane):
+    """Where the ray through pixel (u, v) meets the horizontal plane z = z_plane, in the arm's frame.
+    No depth needed: used for the close looks, where the depth camera is too near to read."""
+    x = (u - intr.center_x_px) / intr.focal_x_px
+    y = (v - intr.center_y_px) / intr.focal_y_px
+    o = (await machine.transform_pose(PoseInFrame(reference_frame="cam", pose=Pose(x=0, y=0, z=0, o_z=1)), "world")).pose
+    q = (await machine.transform_pose(PoseInFrame(reference_frame="cam", pose=Pose(x=x * 1000, y=y * 1000, z=1000, o_z=1)), "world")).pose
+    dx, dy, dz = q.x - o.x, q.y - o.y, q.z - o.z
+    if abs(dz) < 1e-6:
+        return None
+    t = (z_plane - o.z) / dz
+    if t <= 0:
+        return None
+    return o.x + t * dx, o.y + t * dy, z_plane
+
+
+async def find_cube_close(machine, cam, intr, colour):
+    """The cube's centre from a close look: biggest blob of the colour, ray to the known top height."""
+    jpeg, _ = await grab(cam, want_depth=False)
+    bgr = cv2.imdecode(np.frombuffer(jpeg, "uint8"), cv2.IMREAD_COLOR)
+    bl = blobs(bgr, colour)
+    if not bl:
+        return None
+    area, (cu, cv_), box = bl[0]
+    return await pixel_to_plane(machine, intr, cu, cv_, CUBE_MM), area
+
+
 async def find_cubes(machine, cam, intr, colours=None):
     """{colour: (world_top_centre, area, box)} for each colour seen, using the biggest blob of each."""
     jpeg, depth = await grab(cam, want_depth=True)
